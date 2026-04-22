@@ -1,0 +1,422 @@
+' ============================================================
+' MasterSketchTo3D.swb
+'
+' Creates virtual stiffener parts from closed rectangular
+' contours drawn in an assembly-level sketch.
+'
+' USAGE:
+'   1. In your SolidWorks assembly, click the sketch containing
+'      your stiffener rectangles in the Feature Manager tree
+'      so it is selected (highlighted).
+'   2. Run this macro (Tools > Macro > Run).
+'   3. Enter the stiffener thickness in inches when prompted.
+'
+' The macro will:
+'   - Create an offset reference plane ("STIFFENER OFFSET PLANE")
+'     on the far side of the sketch at the entered thickness.
+'   - Create one virtual part per closed contour, extruded
+'     "Up to Surface" to that offset plane.
+'   - Name each part "STIFF VERT #", "STIFF HORZ #", or
+'     "STIFF DIAG #" based on the orientation of the long axis.
+'
+' NOTE ON DIRECTION: The offset plane is created in one direction
+'   from the sketch plane. If it goes the wrong way, flip the
+'   "STIFFENER OFFSET PLANE" in the Feature Manager (right-click
+'   > Edit Feature > flip offset direction), then Rebuild.
+' ============================================================
+Option Explicit
+
+Private Const PI      As Double = 3.14159265358979
+Private Const IN_TO_M As Double = 0.0254
+Private Const ANG_TOL As Double = 5.0   ' degrees; within this of 0 or 90 -> H or V
+
+
+' ============================================================
+' ENTRY POINT
+' ============================================================
+Sub CreateStiffeners()
+
+    Dim swApp   As SldWorks.SldWorks
+    Dim swModel As SldWorks.ModelDoc2
+    Dim swAssy  As SldWorks.AssemblyDoc
+
+    Set swApp   = Application.SldWorks
+    Set swModel = swApp.ActiveDoc
+
+    If swModel Is Nothing Then
+        MsgBox "No active document.", vbExclamation
+        Exit Sub
+    End If
+    If swModel.GetType() <> swDocASSEMBLY Then
+        MsgBox "Please run this macro inside an assembly.", vbExclamation
+        Exit Sub
+    End If
+    Set swAssy = swModel
+
+    ' ── 1. Get pre-selected assembly sketch ──────────────────
+    Dim swSelMgr As SldWorks.SelectionMgr
+    Set swSelMgr = swModel.SelectionManager
+
+    If swSelMgr.GetSelectedObjectCount2(-1) < 1 Then
+        MsgBox "Select the assembly sketch in the Feature Manager first, then run the macro.", _
+               vbInformation
+        Exit Sub
+    End If
+
+    Dim swSketchFeat As SldWorks.Feature
+    Set swSketchFeat = swSelMgr.GetSelectedObject6(1, -1)
+    If swSketchFeat Is Nothing Then
+        MsgBox "Could not read the selected feature.", vbExclamation
+        Exit Sub
+    End If
+
+    Dim swSketch As SldWorks.Sketch
+    Set swSketch = swSketchFeat.GetSpecificFeature2()
+    If swSketch Is Nothing Then
+        MsgBox "Selected feature is not a sketch.", vbExclamation
+        Exit Sub
+    End If
+
+    ' ── 2. Prompt for thickness ───────────────────────────────
+    Dim sIn As String
+    sIn = InputBox("Enter stiffener thickness (inches):", "Stiffener Thickness", "0.25")
+    If sIn = "" Then Exit Sub
+
+    Dim dIn As Double
+    On Error GoTo BadInput
+    dIn = CDbl(sIn)
+    On Error GoTo 0
+    If dIn <= 0 Then
+        MsgBox "Thickness must be greater than zero."
+        Exit Sub
+    End If
+
+    Dim dM As Double
+    dM = dIn * IN_TO_M
+
+    ' ── 3. Create the offset reference plane ─────────────────
+    Dim sPlaneName As String
+    If Not CreateOffsetPlane(swModel, swSketch, dM, sPlaneName) Then
+        MsgBox "Failed to create offset reference plane.", vbExclamation
+        Exit Sub
+    End If
+
+    ' ── 4. Cache sketch reference entity (face or plane) ─────
+    '    Used by BuildStiffener to place each new virtual part.
+    Dim nRefType As Long
+    Dim swRefEnt As Object
+    Set swRefEnt = swSketch.GetReferenceEntity(nRefType)
+
+    ' ── 5. Sketch-to-model transform and math utility ────────
+    Dim swSk2Model As SldWorks.MathTransform
+    Set swSk2Model = swSketch.ModelToSketchTransform.Inverse()
+
+    Dim swMU As SldWorks.MathUtility
+    Set swMU = swApp.GetMathUtility()
+
+    ' ── 6. Loop over closed contours ─────────────────────────
+    Dim vConts As Variant
+    vConts = swSketch.GetSketchContours()
+
+    If IsEmpty(vConts) Then
+        MsgBox "No closed contours found in the sketch.", vbInformation
+        Exit Sub
+    End If
+
+    Dim nV As Integer, nH As Integer, nD As Integer
+    nV = 1 : nH = 1 : nD = 1
+
+    Dim i As Integer
+    For i = 0 To UBound(vConts)
+        Dim swCont As SldWorks.SketchContour
+        Set swCont = vConts(i)
+
+        If swCont.IsClosed() Then
+            Dim sDir  As String
+            Dim sName As String
+            sDir = GetOrientation(swCont)
+
+            Select Case sDir
+                Case "VERT" : sName = "STIFF VERT " & nV  : nV = nV + 1
+                Case "HORZ" : sName = "STIFF HORZ " & nH  : nH = nH + 1
+                Case Else   : sName = "STIFF DIAG " & nD  : nD = nD + 1
+            End Select
+
+            Call BuildStiffener(swApp, swAssy, swModel, swSketch, _
+                                swSk2Model, swMU, _
+                                swRefEnt, nRefType, _
+                                swCont, sPlaneName, sName)
+        End If
+    Next i
+
+    swModel.EditRebuild3
+
+    Dim nTotal As Integer
+    nTotal = (nV - 1) + (nH - 1) + (nD - 1)
+    MsgBox "Done!  " & nTotal & " stiffener(s) created." & Chr(10) & Chr(10) & _
+           "If any extrude failed, check that ""STIFFENER OFFSET PLANE"" is on " & _
+           "the correct side of the sketch (right-click > Edit Feature to flip).", _
+           vbInformation
+    Exit Sub
+
+BadInput:
+    MsgBox "Invalid number entered.", vbExclamation
+End Sub
+
+
+' ============================================================
+' HELPERS
+' ============================================================
+
+' Returns "HORZ", "VERT", or "DIAG" based on the angle of the
+' longest line segment in the contour.
+Private Function GetOrientation(swCont As SldWorks.SketchContour) As String
+    Dim vSegs  As Variant
+    vSegs = swCont.GetSketchSegments()
+
+    Dim maxLen As Double : maxLen = 0
+    Dim maxAng As Double : maxAng = 0   ' 0-90 degrees from horizontal
+
+    Dim j As Integer
+    For j = 0 To UBound(vSegs)
+        Dim swSeg As SldWorks.SketchSegment
+        Set swSeg = vSegs(j)
+
+        If swSeg.GetType() = swSketchLINE Then
+            Dim swLn As SldWorks.SketchLine
+            Set swLn = swSeg
+
+            Dim p1 As SldWorks.SketchPoint
+            Dim p2 As SldWorks.SketchPoint
+            Set p1 = swLn.GetStartPoint2()
+            Set p2 = swLn.GetEndPoint2()
+
+            Dim dx As Double, dy As Double, L As Double
+            dx = p2.X - p1.X
+            dy = p2.Y - p1.Y
+            L  = Sqr(dx * dx + dy * dy)
+
+            If L > maxLen Then
+                maxLen = L
+                If Abs(dx) < 1E-14 Then
+                    maxAng = 90
+                Else
+                    maxAng = Atn(Abs(dy) / Abs(dx)) * 180 / PI
+                End If
+            End If
+        End If
+    Next j
+
+    If maxAng <= ANG_TOL Then
+        GetOrientation = "HORZ"
+    ElseIf maxAng >= (90 - ANG_TOL) Then
+        GetOrientation = "VERT"
+    Else
+        GetOrientation = "DIAG"
+    End If
+End Function
+
+
+' Creates the "STIFFENER OFFSET PLANE" in the assembly at dOffset
+' (metres) from the sketch's parent plane/face.
+' Returns True on success; sPlaneName receives the feature name.
+Private Function CreateOffsetPlane(swModel As SldWorks.ModelDoc2, _
+                                   swSketch As SldWorks.Sketch, _
+                                   dOffset As Double, _
+                                   ByRef sPlaneName As String) As Boolean
+    CreateOffsetPlane = False
+
+    Dim nRefType As Long
+    Dim swRefEnt As Object
+    Set swRefEnt = swSketch.GetReferenceEntity(nRefType)
+
+    swModel.ClearSelection2 True
+
+    Dim bSel As Boolean
+    If nRefType = 2 Then   ' swSelFACES - sketch is on a planar part face
+        Dim swFace As SldWorks.Face2
+        Set swFace = swRefEnt
+        Dim selData As SldWorks.SelectData
+        Set selData = swModel.SelectionManager.CreateSelectData()
+        bSel = swFace.Select4(False, selData)
+    Else                   ' sketch is on a reference plane
+        Dim swPlaneFeat As SldWorks.Feature
+        Set swPlaneFeat = swRefEnt
+        bSel = swModel.Extension.SelectByID2(swPlaneFeat.Name, "PLANE", _
+                    0, 0, 0, False, 0, Nothing, 0)
+    End If
+
+    If Not bSel Then Exit Function
+
+    ' swRefPlaneAtOffset = 4
+    Dim swFM As SldWorks.FeatureManager
+    Set swFM = swModel.FeatureManager
+
+    Dim swNewFeat As SldWorks.Feature
+    Set swNewFeat = swFM.InsertRefPlane(4, dOffset, 0, 0, 0, 0)
+    If swNewFeat Is Nothing Then Exit Function
+
+    swNewFeat.Name = "STIFFENER OFFSET PLANE"
+    sPlaneName = "STIFFENER OFFSET PLANE"
+
+    swModel.ClearSelection2 True
+    CreateOffsetPlane = True
+End Function
+
+
+' Creates one virtual part from a single closed sketch contour
+' and extrudes it up to the offset plane.
+Private Sub BuildStiffener(swApp   As SldWorks.SldWorks, _
+                           swAssy  As SldWorks.AssemblyDoc, _
+                           swModel As SldWorks.ModelDoc2, _
+                           swSketch As SldWorks.Sketch, _
+                           swSk2Model As SldWorks.MathTransform, _
+                           swMU    As SldWorks.MathUtility, _
+                           swRefEnt As Object, nRefType As Long, _
+                           swCont  As SldWorks.SketchContour, _
+                           sPlaneName As String, _
+                           sName   As String)
+
+    ' ── A. Pre-select the sketch plane/face, insert virtual part
+    swModel.ClearSelection2 True
+
+    If nRefType = 2 Then
+        Dim swFace As SldWorks.Face2
+        Set swFace = swRefEnt
+        Dim selData As SldWorks.SelectData
+        Set selData = swModel.SelectionManager.CreateSelectData()
+        swFace.Select4 False, selData
+    Else
+        Dim swPlaneFeat As SldWorks.Feature
+        Set swPlaneFeat = swRefEnt
+        swModel.Extension.SelectByID2 swPlaneFeat.Name, "PLANE", _
+            0, 0, 0, False, 0, Nothing, 0
+    End If
+
+    ' InsertNewVirtualPart uses the current selection for placement.
+    ' Returns the new Component2 via the second parameter.
+    Dim swComp  As SldWorks.Component2
+    Dim lStatus As Long
+    lStatus = swAssy.InsertNewVirtualPart(Nothing, swComp)
+
+    If swComp Is Nothing Then
+        MsgBox "Could not create virtual part for """ & sName & """" & Chr(10) & _
+               "(InsertNewVirtualPart status = " & lStatus & ").", vbExclamation
+        Exit Sub
+    End If
+
+    ' ── B. Active doc is now the virtual part being edited ───
+    Dim swPart As SldWorks.ModelDoc2
+    Set swPart = swApp.ActiveDoc
+
+    ' ── C. Component transform: part space <-> assembly space ─
+    '    swComp.Transform2 = part→assembly; inverse = assembly→part
+    Dim swAssy2Part As SldWorks.MathTransform
+    Set swAssy2Part = swComp.Transform2.Inverse()
+
+    ' ── D. Open a sketch on the part's Front Plane ───────────
+    swPart.Extension.SelectByID2 "Front Plane", "PLANE", _
+        0, 0, 0, False, 0, Nothing, 0
+    swPart.SketchManager.InsertSketch True
+
+    ' ── E. Draw contour lines in the part sketch ─────────────
+    '    Transform each point:
+    '      sketch-local → assembly model → part model (XY plane)
+    Dim vSegs As Variant
+    vSegs = swCont.GetSketchSegments()
+
+    Dim k As Integer
+    For k = 0 To UBound(vSegs)
+        Dim swSeg As SldWorks.SketchSegment
+        Set swSeg = vSegs(k)
+
+        If swSeg.GetType() = swSketchLINE Then
+            Dim swLn As SldWorks.SketchLine
+            Set swLn = swSeg
+
+            Dim sp1 As SldWorks.SketchPoint
+            Dim sp2 As SldWorks.SketchPoint
+            Set sp1 = swLn.GetStartPoint2()
+            Set sp2 = swLn.GetEndPoint2()
+
+            Dim a1(2) As Double, a2(2) As Double
+            a1(0) = sp1.X : a1(1) = sp1.Y : a1(2) = sp1.Z
+            a2(0) = sp2.X : a2(1) = sp2.Y : a2(2) = sp2.Z
+
+            Dim swMP1 As SldWorks.MathPoint
+            Dim swMP2 As SldWorks.MathPoint
+            Set swMP1 = swMU.CreatePoint(a1)
+            Set swMP2 = swMU.CreatePoint(a2)
+
+            ' sketch local -> assembly model space
+            Set swMP1 = swMP1.MultiplyTransform(swSk2Model)
+            Set swMP2 = swMP2.MultiplyTransform(swSk2Model)
+
+            ' assembly model space -> part model space
+            Set swMP1 = swMP1.MultiplyTransform(swAssy2Part)
+            Set swMP2 = swMP2.MultiplyTransform(swAssy2Part)
+
+            Dim d1 As Variant, d2 As Variant
+            d1 = swMP1.ArrayData
+            d2 = swMP2.ArrayData
+
+            ' d1(0)=X, d1(1)=Y are sketch 2D coords on Front Plane (Z~=0)
+            swPart.SketchManager.CreateLine d1(0), d1(1), 0#, _
+                                            d2(0), d2(1), 0#
+        End If
+    Next k
+
+    ' ── F. Close the sketch ───────────────────────────────────
+    swPart.SketchManager.InsertSketch True
+
+    ' ── G. Select the sketch profile (mark = 0) ──────────────
+    '    Walk the feature tree to find the sketch we just made.
+    Dim swFt       As SldWorks.Feature
+    Dim swLastSkFt As SldWorks.Feature
+    Set swFt = swPart.FirstFeature()
+    Do While Not swFt Is Nothing
+        If swFt.GetTypeName2() = "ProfileFeature" Then
+            Set swLastSkFt = swFt
+        End If
+        Set swFt = swFt.GetNextFeature()
+    Loop
+
+    swPart.ClearSelection2 True
+    If Not swLastSkFt Is Nothing Then
+        swLastSkFt.Select2 False, 0   ' select (not add), mark = 0
+    End If
+
+    ' ── H. Add offset plane as "Up To" reference (mark = 1) ──
+    '    Selecting it with True (add to selection) + mark 1 tells
+    '    FeatureExtrusion2 this is the termination surface.
+    swPart.Extension.SelectByID2 sPlaneName, "PLANE", _
+        0, 0, 0, True, 1, Nothing, 0
+
+    ' ── I. Extrude Up To Surface ──────────────────────────────
+    '    End condition 4 = swEndCondUpToSurface.
+    '    All other parameters match the recorded macro exactly.
+    Dim swExtrude As SldWorks.Feature
+    Set swExtrude = swPart.FeatureManager.FeatureExtrusion2( _
+        True, False, False, _
+        4, 0, _
+        0.00254, 0.00254, _
+        False, False, False, False, _
+        1.74532925199433E-02, 1.74532925199433E-02, _
+        False, False, False, False, _
+        True, True, True, _
+        0, 0, False)
+
+    swPart.SelectionManager.EnableContourSelection = False
+
+    If swExtrude Is Nothing Then
+        MsgBox "Extrude failed for """ & sName & """." & Chr(10) & _
+               "Possible causes:" & Chr(10) & _
+               "  - Offset plane is on the wrong side (flip it and rerun)." & Chr(10) & _
+               "  - Sketch contour is not fully closed.", vbExclamation
+    End If
+
+    ' ── J. Exit edit-component mode, rename the component ────
+    swAssy.EditAssembly
+    swComp.Name2 = sName
+
+End Sub

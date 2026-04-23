@@ -188,11 +188,14 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
 
     ReDim contPts(0 To nL * 2, 0 To 23) As Double
 
-    ' Deduplication: store sorted index-sets of found loops.
-    ' Shared walls mean the same line appears in multiple rectangles,
-    ' so we cannot mark lines as "used" — instead we check whether
-    ' the exact same set of 4 line indices has already been stored.
-    ReDim foundSets(0 To nL * 2, 0 To 3) As Integer
+    ' Deduplication by centroid.
+    ' Rectangles are always drawn as independent sets of 4 lines, but
+    ' coincident edges (two rects side-by-side) let the walker build
+    ' "phantom" loops that are geometrically identical to a real rect
+    ' but use a mix of line objects.  Index-set dedup won't catch those;
+    ' centroid dedup does: two loops with the same center = same rect.
+    ReDim foundCx(0 To nL * 2) As Double
+    ReDim foundCy(0 To nL * 2) As Double
 
     ' ── Walk connectivity to find 4-line closed loops ────────
     '
@@ -255,45 +258,39 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
                            PtNear(lx1(i3), ly1(i3), sx, sy) Then closes = True
 
                         If closes Then
-                            ' ── Sort the 4 indices for dedup ─
-                            Dim srt(3) As Integer
-                            srt(0) = i0 : srt(1) = i1
-                            srt(2) = i2 : srt(3) = i3
+                            ' ── Compute centroid of this loop ─
+                            ' Each of the 4 corners appears as an
+                            ' endpoint of exactly 2 segments, so
+                            ' averaging all 8 stored XY values
+                            ' gives the correct rectangle centre.
+                            Dim loopL(3) As Integer
+                            loopL(0) = i0 : loopL(1) = i1
+                            loopL(2) = i2 : loopL(3) = i3
 
-                            Dim ii As Integer, jj As Integer, tmp As Integer
-                            For ii = 0 To 2
-                                For jj = ii + 1 To 3
-                                    If srt(jj) < srt(ii) Then
-                                        tmp = srt(ii) : srt(ii) = srt(jj) : srt(jj) = tmp
-                                    End If
-                                Next jj
-                            Next ii
+                            Dim cxNew As Double, cyNew As Double
+                            Dim li As Integer
+                            For li = 0 To 3
+                                Dim lIdx As Integer : lIdx = loopL(li)
+                                cxNew = cxNew + lx1(lIdx) + lx2(lIdx)
+                                cyNew = cyNew + ly1(lIdx) + ly2(lIdx)
+                            Next li
+                            cxNew = cxNew / 8 : cyNew = cyNew / 8
 
-                            ' ── Check for duplicate ───────────
+                            ' ── Centroid dedup ────────────────
                             Dim isDup As Boolean : isDup = False
                             Dim di As Integer
                             For di = 0 To nFound - 1
-                                If foundSets(di, 0) = srt(0) And _
-                                   foundSets(di, 1) = srt(1) And _
-                                   foundSets(di, 2) = srt(2) And _
-                                   foundSets(di, 3) = srt(3) Then
+                                If PtNear(foundCx(di), foundCy(di), cxNew, cyNew) Then
                                     isDup = True : Exit For
                                 End If
                             Next di
 
                             If Not isDup Then
-                                foundSets(nFound, 0) = srt(0)
-                                foundSets(nFound, 1) = srt(1)
-                                foundSets(nFound, 2) = srt(2)
-                                foundSets(nFound, 3) = srt(3)
+                                foundCx(nFound) = cxNew
+                                foundCy(nFound) = cyNew
 
-                                Dim loopL(3) As Integer
-                                loopL(0) = i0 : loopL(1) = i1
-                                loopL(2) = i2 : loopL(3) = i3
-
-                                Dim li As Integer
                                 For li = 0 To 3
-                                    Dim lIdx As Integer : lIdx = loopL(li)
+                                    lIdx = loopL(li)
                                     contPts(nFound, li * 6 + 0) = lx1(lIdx)
                                     contPts(nFound, li * 6 + 1) = ly1(lIdx)
                                     contPts(nFound, li * 6 + 2) = lz1(lIdx)

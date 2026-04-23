@@ -9,23 +9,18 @@
 '   2. Run this macro (Tools > Macro > Run).
 '   3. Enter stiffener thickness in inches when prompted.
 '
-' The macro will:
-'   - Create "STIFFENER OFFSET PLANE" offset by the entered
-'     thickness from the sketch plane.
-'   - Create one virtual part per closed 4-sided contour,
-'     extruded Up To Surface to that offset plane.
-'   - Name each part STIFF VERT #, STIFF HORZ #, or STIFF DIAG #
-'     based on the orientation of the rectangle's long axis.
+' Parts are named STIFF VERT #, STIFF HORZ #, or STIFF DIAG #
+' based on the orientation of each rectangle's long axis.
 '
-' NOTE ON DIRECTION: If the offset plane ends up on the wrong
-'   side, right-click "STIFFENER OFFSET PLANE" > Edit Feature,
-'   flip the offset direction, and Rebuild.
+' NOTE: If the offset plane goes the wrong direction, right-click
+'   "STIFFENER OFFSET PLANE" > Edit Feature > flip direction > OK.
 ' ============================================================
 Option Explicit
 
 Private Const PI      As Double = 3.14159265358979
 Private Const IN_TO_M As Double = 0.0254
-Private Const ANG_TOL As Double = 5.0   ' degrees; within this of 0/90 = H or V
+Private Const ANG_TOL As Double = 5.0
+Private Const EPS     As Double = 1E-7   ' endpoint match tolerance (metres)
 
 
 ' ============================================================
@@ -77,128 +72,70 @@ Sub CreateStiffeners()
     On Error GoTo 0
     If dIn <= 0 Then MsgBox "Must be greater than zero." : Exit Sub
 
-    ' ── 3. Create the offset reference plane ─────────────────
+    ' ── 3. Create offset reference plane ─────────────────────
     Dim sPlaneName As String
     If Not CreateOffsetPlane(swModel, swSketch, dIn * IN_TO_M, sPlaneName) Then
         MsgBox "Failed to create offset reference plane.", vbExclamation : Exit Sub
     End If
 
-    ' ── 4. Cache sketch reference entity for virtual part placement
+    ' ── 4. Cache sketch reference entity ─────────────────────
     Dim nRefType As Long
     Dim swRefEnt As Object
     Set swRefEnt = swSketch.GetReferenceEntity(nRefType)
 
-    ' ── 5. Compute transforms NOW, before entering edit-component mode
+    ' ── 5. Math objects (before edit-component mode) ─────────
     Dim swSk2Model As SldWorks.MathTransform
     Set swSk2Model = swSketch.ModelToSketchTransform.Inverse()
 
     Dim swMU As SldWorks.MathUtility
     Set swMU = swApp.GetMathUtility()
 
-    ' ── 6. Get sketch contours ────────────────────────────────
-    Dim vConts As Variant
-    vConts = swSketch.GetSketchContours()
-    If IsEmpty(vConts) Then
-        MsgBox "No closed contours found in the sketch.", vbInformation : Exit Sub
+    ' ── 6. Find 4-line closed loops directly from sketch segs ─
+    '    (bypasses GetSketchContours which behaves unexpectedly
+    '     for assembly sketches)
+    Dim contPts()  As Double
+    Dim nFound     As Integer
+
+    Call FindRectLoops(swSketch, contPts, nFound)
+
+    If nFound = 0 Then
+        MsgBox "No closed 4-sided rectangles found in the sketch." & Chr(10) & _
+               "Make sure every rectangle is drawn with fully connected corners.", _
+               vbInformation
+        Exit Sub
     End If
 
-    ' ── 7. Pre-cache segment endpoint data ───────────────────
-    '    Sketch segment data becomes inaccessible once we enter
-    '    edit-component mode for a virtual part.  Cache everything
-    '    here before the build loop starts.
-    '
-    '    Only keep closed contours with exactly 4 line segments
-    '    (i.e. rectangles).  This filters out the compound contours
-    '    SolidWorks creates when rectangles share walls.
-    '
-    '    contPts(c, s*6 .. s*6+5) = x1,y1,z1, x2,y2,z2 of segment s
-    '    in sketch-local coordinates (metres).
-
-    Dim nMaxC As Integer : nMaxC = UBound(vConts) + 1
-    ReDim contPts(0 To nMaxC - 1, 0 To 23) As Double
-    ReDim contNames(0 To nMaxC - 1) As String
-    Dim nValid As Integer : nValid = 0
+    ' ── 7. Assign names by orientation ───────────────────────
+    Dim contNames() As String
+    ReDim contNames(0 To nFound - 1) As String
 
     Dim nV As Integer, nH As Integer, nD As Integer
     nV = 1 : nH = 1 : nD = 1
 
-    Dim ci As Integer
-    For ci = 0 To UBound(vConts)
-
-        Dim swCont As SldWorks.SketchContour
-        Set swCont = vConts(ci)
-        If Not swCont.IsClosed() Then GoTo SkipContour
-
-        Dim vSegsC As Variant
-        vSegsC = swCont.GetSketchSegments()
-        If IsEmpty(vSegsC) Then GoTo SkipContour
-
-        ' Count line segments
-        Dim nLines As Integer : nLines = 0
-        Dim si As Integer
-        For si = 0 To UBound(vSegsC)
-            Dim chkSeg As SldWorks.SketchSegment
-            Set chkSeg = vSegsC(si)
-            If chkSeg.GetType() = swSketchLINE Then nLines = nLines + 1
-        Next si
-        If nLines <> 4 Then GoTo SkipContour
-
-        ' Cache the 4 line segment endpoints (sketch-local XYZ)
-        Dim nSeg As Integer : nSeg = 0
-        For si = 0 To UBound(vSegsC)
-            Set chkSeg = vSegsC(si)
-            If chkSeg.GetType() = swSketchLINE Then
-                Dim cacheLn As SldWorks.SketchLine
-                Set cacheLn = chkSeg
-                Dim csp1 As SldWorks.SketchPoint
-                Dim csp2 As SldWorks.SketchPoint
-                Set csp1 = cacheLn.GetStartPoint2()
-                Set csp2 = cacheLn.GetEndPoint2()
-                contPts(nValid, nSeg * 6 + 0) = csp1.X
-                contPts(nValid, nSeg * 6 + 1) = csp1.Y
-                contPts(nValid, nSeg * 6 + 2) = csp1.Z
-                contPts(nValid, nSeg * 6 + 3) = csp2.X
-                contPts(nValid, nSeg * 6 + 4) = csp2.Y
-                contPts(nValid, nSeg * 6 + 5) = csp2.Z
-                nSeg = nSeg + 1
-            End If
-        Next si
-
-        ' Assign name by orientation
-        Dim sDir As String
-        sDir = GetOrientation(swCont)
-        Select Case sDir
-            Case "VERT" : contNames(nValid) = "STIFF VERT " & nV : nV = nV + 1
-            Case "HORZ" : contNames(nValid) = "STIFF HORZ " & nH : nH = nH + 1
-            Case Else   : contNames(nValid) = "STIFF DIAG " & nD : nD = nD + 1
-        End Select
-
-        nValid = nValid + 1
-SkipContour:
-    Next ci
-
-    If nValid = 0 Then
-        MsgBox "No valid 4-sided closed contours found." & Chr(10) & _
-               "Make sure rectangles are drawn with the Rectangle tool " & _
-               "and all corners are fully connected.", vbInformation
-        Exit Sub
-    End If
-
-    ' ── 8. Build one virtual stiffener per cached contour ────
     Dim bi As Integer
-    For bi = 0 To nValid - 1
+    For bi = 0 To nFound - 1
+        Dim sDir As String
+        sDir = OrientFromPts(contPts, bi)
+        Select Case sDir
+            Case "VERT" : contNames(bi) = "STIFF VERT " & nV : nV = nV + 1
+            Case "HORZ" : contNames(bi) = "STIFF HORZ " & nH : nH = nH + 1
+            Case Else   : contNames(bi) = "STIFF DIAG " & nD : nD = nD + 1
+        End Select
+    Next bi
+
+    ' ── 8. Build stiffeners ───────────────────────────────────
+    For bi = 0 To nFound - 1
         Dim pts(0 To 23) As Double
         Dim pi As Integer
         For pi = 0 To 23
             pts(pi) = contPts(bi, pi)
         Next pi
-
         Call BuildStiffener(swApp, swAssy, swModel, swMU, swSk2Model, _
                             swRefEnt, nRefType, pts, sPlaneName, contNames(bi))
     Next bi
 
     swModel.EditRebuild3
-    MsgBox "Done!  " & nValid & " stiffener(s) created.", vbInformation
+    MsgBox "Done!  " & nFound & " stiffener(s) created.", vbInformation
     Exit Sub
 
 BadInput:
@@ -207,58 +144,195 @@ End Sub
 
 
 ' ============================================================
-' HELPERS
+' RECTANGLE FINDER
+' Walks sketch line segment connectivity directly instead of
+' relying on GetSketchContours, which behaves unpredictably for
+' assembly sketches.  Finds all minimal 4-line closed loops.
+'
+' contPts(c, s*6..s*6+5) = x1,y1,z1,x2,y2,z2 of segment s,
+'   in sketch-local coordinates (metres).
 ' ============================================================
+Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
+                          ByRef contPts() As Double, _
+                          ByRef nFound As Integer)
+    nFound = 0
 
-' Returns "HORZ", "VERT", or "DIAG" based on angle of longest segment.
-Private Function GetOrientation(swCont As SldWorks.SketchContour) As String
-    Dim vSegs  As Variant
-    vSegs = swCont.GetSketchSegments()
+    Dim vSegs As Variant
+    vSegs = swSketch.GetSketchSegments()
+    If IsEmpty(vSegs) Then Exit Sub
 
+    ' ── Collect line segment endpoints ───────────────────────
+    Dim maxL As Integer : maxL = UBound(vSegs) + 1
+    ReDim lx1(0 To maxL) As Double, ly1(0 To maxL) As Double, lz1(0 To maxL) As Double
+    ReDim lx2(0 To maxL) As Double, ly2(0 To maxL) As Double, lz2(0 To maxL) As Double
+    Dim nL As Integer : nL = 0
+
+    Dim qi As Integer
+    For qi = 0 To UBound(vSegs)
+        Dim qSeg As SldWorks.SketchSegment
+        Set qSeg = vSegs(qi)
+        If qSeg.GetType() = swSketchLINE Then
+            Dim qLn As SldWorks.SketchLine
+            Set qLn = qSeg
+            Dim qp1 As SldWorks.SketchPoint
+            Dim qp2 As SldWorks.SketchPoint
+            Set qp1 = qLn.GetStartPoint2()
+            Set qp2 = qLn.GetEndPoint2()
+            lx1(nL) = qp1.X : ly1(nL) = qp1.Y : lz1(nL) = qp1.Z
+            lx2(nL) = qp2.X : ly2(nL) = qp2.Y : lz2(nL) = qp2.Z
+            nL = nL + 1
+        End If
+    Next qi
+
+    If nL < 4 Then Exit Sub
+
+    ReDim contPts(0 To nL, 0 To 23) As Double
+    ReDim usedLine(0 To nL - 1) As Boolean
+
+    ' ── Walk connectivity to find 4-line closed loops ────────
+    '
+    '  For each unvisited line i0, try traversing from each of
+    '  its two endpoints, looking for a path of 3 more lines
+    '  that closes back to the start.
+    '
+    '  Variables nx,ny track the "current open end" as we walk;
+    '  sx,sy hold the starting vertex we need to return to.
+
+    Dim i0 As Integer, i1 As Integer, i2 As Integer, i3 As Integer
+    Dim sd As Integer  ' start direction (0 or 1)
+
+    For i0 = 0 To nL - 1
+        If usedLine(i0) Then GoTo NextI0
+
+        For sd = 0 To 1
+            Dim sx As Double, sy As Double  ' start vertex
+            Dim nx As Double, ny As Double  ' current open end
+
+            If sd = 0 Then
+                sx = lx1(i0) : sy = ly1(i0)
+                nx = lx2(i0) : ny = ly2(i0)
+            Else
+                sx = lx2(i0) : sy = ly2(i0)
+                nx = lx1(i0) : ny = ly1(i0)
+            End If
+
+            For i1 = 0 To nL - 1
+                If i1 = i0 Then GoTo NextI1
+                If usedLine(i1) Then GoTo NextI1
+
+                Dim nx1 As Double, ny1 As Double
+                If PtNear(lx1(i1), ly1(i1), nx, ny) Then
+                    nx1 = lx2(i1) : ny1 = ly2(i1)
+                ElseIf PtNear(lx2(i1), ly2(i1), nx, ny) Then
+                    nx1 = lx1(i1) : ny1 = ly1(i1)
+                Else
+                    GoTo NextI1
+                End If
+
+                ' Don't close the loop after only 2 lines
+                If PtNear(nx1, ny1, sx, sy) Then GoTo NextI1
+
+                For i2 = 0 To nL - 1
+                    If i2 = i0 Or i2 = i1 Then GoTo NextI2
+                    If usedLine(i2) Then GoTo NextI2
+
+                    Dim nx2 As Double, ny2 As Double
+                    If PtNear(lx1(i2), ly1(i2), nx1, ny1) Then
+                        nx2 = lx2(i2) : ny2 = ly2(i2)
+                    ElseIf PtNear(lx2(i2), ly2(i2), nx1, ny1) Then
+                        nx2 = lx1(i2) : ny2 = ly1(i2)
+                    Else
+                        GoTo NextI2
+                    End If
+
+                    If PtNear(nx2, ny2, sx, sy) Then GoTo NextI2
+                    If PtNear(nx2, ny2, nx, ny) Then GoTo NextI2
+
+                    For i3 = 0 To nL - 1
+                        If i3 = i0 Or i3 = i1 Or i3 = i2 Then GoTo NextI3
+                        If usedLine(i3) Then GoTo NextI3
+
+                        ' i3 must connect nx2 back to sx
+                        Dim closes As Boolean : closes = False
+                        If PtNear(lx1(i3), ly1(i3), nx2, ny2) And _
+                           PtNear(lx2(i3), ly2(i3), sx, sy) Then closes = True
+                        If PtNear(lx2(i3), ly2(i3), nx2, ny2) And _
+                           PtNear(lx1(i3), ly1(i3), sx, sy) Then closes = True
+
+                        If closes Then
+                            ' ── Store the loop ───────────────
+                            Dim loopL(3) As Integer
+                            loopL(0) = i0 : loopL(1) = i1
+                            loopL(2) = i2 : loopL(3) = i3
+
+                            Dim li As Integer
+                            For li = 0 To 3
+                                Dim lIdx As Integer : lIdx = loopL(li)
+                                contPts(nFound, li * 6 + 0) = lx1(lIdx)
+                                contPts(nFound, li * 6 + 1) = ly1(lIdx)
+                                contPts(nFound, li * 6 + 2) = lz1(lIdx)
+                                contPts(nFound, li * 6 + 3) = lx2(lIdx)
+                                contPts(nFound, li * 6 + 4) = ly2(lIdx)
+                                contPts(nFound, li * 6 + 5) = lz2(lIdx)
+                                usedLine(lIdx) = True
+                            Next li
+                            nFound = nFound + 1
+                            GoTo NextI0   ' move on; this i0 is done
+                        End If
+NextI3:
+                    Next i3
+NextI2:
+                Next i2
+NextI1:
+            Next i1
+        Next sd
+NextI0:
+    Next i0
+End Sub
+
+
+' Returns True if two 2-D points are within EPS of each other.
+Private Function PtNear(x1 As Double, y1 As Double, _
+                         x2 As Double, y2 As Double) As Boolean
+    Dim dx As Double : dx = x1 - x2
+    Dim dy As Double : dy = y1 - y2
+    PtNear = (dx * dx + dy * dy) < (EPS * EPS)
+End Function
+
+
+' Determines HORZ / VERT / DIAG from cached contour point data.
+' Uses the angle of the longest segment.
+Private Function OrientFromPts(contPts() As Double, ci As Integer) As String
     Dim maxLen As Double : maxLen = 0
     Dim maxAng As Double : maxAng = 0
 
-    Dim j As Integer
-    For j = 0 To UBound(vSegs)
-        Dim swSeg As SldWorks.SketchSegment
-        Set swSeg = vSegs(j)
-
-        If swSeg.GetType() = swSketchLINE Then
-            Dim swLn As SldWorks.SketchLine
-            Set swLn = swSeg
-            Dim p1 As SldWorks.SketchPoint
-            Dim p2 As SldWorks.SketchPoint
-            Set p1 = swLn.GetStartPoint2()
-            Set p2 = swLn.GetEndPoint2()
-
-            Dim dx As Double, dy As Double, L As Double
-            dx = p2.X - p1.X
-            dy = p2.Y - p1.Y
-            L  = Sqr(dx * dx + dy * dy)
-
-            If L > maxLen Then
-                maxLen = L
-                If Abs(dx) < 1E-14 Then
-                    maxAng = 90
-                Else
-                    maxAng = Atn(Abs(dy) / Abs(dx)) * 180 / PI
-                End If
+    Dim s As Integer
+    For s = 0 To 3
+        Dim dx As Double : dx = contPts(ci, s * 6 + 3) - contPts(ci, s * 6 + 0)
+        Dim dy As Double : dy = contPts(ci, s * 6 + 4) - contPts(ci, s * 6 + 1)
+        Dim L  As Double : L  = Sqr(dx * dx + dy * dy)
+        If L > maxLen Then
+            maxLen = L
+            If Abs(dx) < 1E-14 Then
+                maxAng = 90
+            Else
+                maxAng = Atn(Abs(dy) / Abs(dx)) * 180 / PI
             End If
         End If
-    Next j
+    Next s
 
     If maxAng <= ANG_TOL Then
-        GetOrientation = "HORZ"
+        OrientFromPts = "HORZ"
     ElseIf maxAng >= (90 - ANG_TOL) Then
-        GetOrientation = "VERT"
+        OrientFromPts = "VERT"
     Else
-        GetOrientation = "DIAG"
+        OrientFromPts = "DIAG"
     End If
 End Function
 
 
-' Creates "STIFFENER OFFSET PLANE" offset by dOffset metres from
-' the sketch's parent plane or face.  Returns True on success.
+' Creates "STIFFENER OFFSET PLANE" at dOffset metres from the
+' sketch's parent plane or face.  Returns True on success.
 Private Function CreateOffsetPlane(swModel  As SldWorks.ModelDoc2, _
                                    swSketch As SldWorks.Sketch, _
                                    dOffset  As Double, _
@@ -272,13 +346,13 @@ Private Function CreateOffsetPlane(swModel  As SldWorks.ModelDoc2, _
     swModel.ClearSelection2 True
 
     Dim bSel As Boolean
-    If nRefType = 2 Then   ' swSelFACES - sketch on a planar part face
+    If nRefType = 2 Then
         Dim swFace As SldWorks.Face2
         Set swFace = swRefEnt
         Dim selData As SldWorks.SelectData
         Set selData = swModel.SelectionManager.CreateSelectData()
         bSel = swFace.Select4(False, selData)
-    Else                   ' sketch on a reference plane
+    Else
         Dim swPlaneFeat As SldWorks.Feature
         Set swPlaneFeat = swRefEnt
         bSel = swModel.Extension.SelectByID2(swPlaneFeat.Name, "PLANE", _
@@ -287,7 +361,7 @@ Private Function CreateOffsetPlane(swModel  As SldWorks.ModelDoc2, _
 
     If Not bSel Then Exit Function
 
-    ' Constraint value 8 = swRefPlaneAtOffset (confirmed by recorded macro)
+    ' Constraint 8 = swRefPlaneAtOffset (confirmed by recorded macro)
     Dim swNewFeat As SldWorks.Feature
     Set swNewFeat = swModel.FeatureManager.InsertRefPlane(8, dOffset, 0, 0, 0, 0)
     If swNewFeat Is Nothing Then Exit Function
@@ -300,10 +374,8 @@ Private Function CreateOffsetPlane(swModel  As SldWorks.ModelDoc2, _
 End Function
 
 
-' Creates one virtual stiffener part from pre-cached contour point data
+' Creates one virtual stiffener part from pre-cached contour pts
 ' and extrudes it Up To Surface to the offset plane.
-'
-' pts(s*6 .. s*6+5) = x1,y1,z1, x2,y2,z2 of segment s (sketch-local metres)
 Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
                            swAssy     As SldWorks.AssemblyDoc, _
                            swModel    As SldWorks.ModelDoc2, _
@@ -314,7 +386,7 @@ Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
                            sPlaneName As String, _
                            sName      As String)
 
-    ' ── A. Pre-select placement face/plane, insert virtual part ─
+    ' ── A. Select placement face/plane, create virtual part ──
     swModel.ClearSelection2 True
 
     If nRefType = 2 Then
@@ -340,15 +412,15 @@ Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
         Exit Sub
     End If
 
-    ' ── B. Get the virtual part model doc ────────────────────
+    ' ── B. Get virtual part model doc ────────────────────────
     Dim swPart As SldWorks.ModelDoc2
     Set swPart = swApp.ActiveDoc
 
-    ' ── C. Component transform: assembly space -> part space ──
+    ' ── C. Assembly -> part transform ────────────────────────
     Dim swAssy2Part As SldWorks.MathTransform
     Set swAssy2Part = swComp.Transform2.Inverse()
 
-    ' ── D. Open sketch (handle case where one was auto-opened) ─
+    ' ── D. Open sketch (handle auto-opened sketch case) ──────
     Dim swActiveSk As SldWorks.Sketch
     Set swActiveSk = swPart.SketchManager.ActiveSketch
 
@@ -358,8 +430,8 @@ Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
         swPart.SketchManager.InsertSketch True
     End If
 
-    ' ── E. Draw the 4 contour lines using cached point data ──
-    '    Transform: sketch-local -> assembly model -> part model
+    ' ── E. Draw the 4 rectangle lines ────────────────────────
+    '    sketch-local -> assembly model -> part model (XY plane)
     Dim s As Integer
     For s = 0 To 3
         Dim a1(2) As Double, a2(2) As Double
@@ -371,10 +443,10 @@ Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
         Set swMP1 = swMU.CreatePoint(a1)
         Set swMP2 = swMU.CreatePoint(a2)
 
-        Set swMP1 = swMP1.MultiplyTransform(swSk2Model)   ' sketch-local -> assembly model
+        Set swMP1 = swMP1.MultiplyTransform(swSk2Model)
         Set swMP2 = swMP2.MultiplyTransform(swSk2Model)
 
-        Set swMP1 = swMP1.MultiplyTransform(swAssy2Part)  ' assembly model -> part model
+        Set swMP1 = swMP1.MultiplyTransform(swAssy2Part)
         Set swMP2 = swMP2.MultiplyTransform(swAssy2Part)
 
         Dim d1 As Variant, d2 As Variant
@@ -384,7 +456,7 @@ Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
         swPart.SketchManager.CreateLine d1(0), d1(1), 0#, d2(0), d2(1), 0#
     Next s
 
-    ' ── F. Close the sketch ───────────────────────────────────
+    ' ── F. Close sketch ───────────────────────────────────────
     swPart.SketchManager.InsertSketch True
 
     ' ── G. Select the sketch profile (mark = 0) ──────────────
@@ -397,16 +469,13 @@ Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
     Loop
 
     swPart.ClearSelection2 True
-    If Not swLastSkFt Is Nothing Then
-        swLastSkFt.Select2 False, 0
-    End If
+    If Not swLastSkFt Is Nothing Then swLastSkFt.Select2 False, 0
 
-    ' ── H. Add offset plane as Up To Surface target (mark = 1) ─
+    ' ── H. Add offset plane as Up To target (mark = 1) ───────
     swPart.Extension.SelectByID2 sPlaneName, "PLANE", _
         0, 0, 0, True, 1, Nothing, 0
 
     ' ── I. Extrude Up To Surface ──────────────────────────────
-    '    Parameters match recorded macro; end condition 4 = Up To Surface.
     Dim swExtrude As SldWorks.Feature
     Set swExtrude = swPart.FeatureManager.FeatureExtrusion2( _
         True, False, False, _
@@ -422,11 +491,10 @@ Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swExtrude Is Nothing Then
         MsgBox "Extrude failed for """ & sName & """." & Chr(10) & _
-               "The offset plane may be on the wrong side - " & _
-               "flip it and rerun.", vbExclamation
+               "Offset plane may be on the wrong side - flip it and rerun.", vbExclamation
     End If
 
-    ' ── J. Exit edit-component mode, rename component ─────────
+    ' ── J. Exit edit mode, rename ─────────────────────────────
     swAssy.EditAssembly
     swComp.Name2 = sName
 

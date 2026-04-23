@@ -186,27 +186,27 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
 
     If nL < 4 Then Exit Sub
 
-    ReDim contPts(0 To nL, 0 To 23) As Double
-    ReDim usedLine(0 To nL - 1) As Boolean
+    ReDim contPts(0 To nL * 2, 0 To 23) As Double
+
+    ' Deduplication: store sorted index-sets of found loops.
+    ' Shared walls mean the same line appears in multiple rectangles,
+    ' so we cannot mark lines as "used" — instead we check whether
+    ' the exact same set of 4 line indices has already been stored.
+    ReDim foundSets(0 To nL * 2, 0 To 3) As Integer
 
     ' ── Walk connectivity to find 4-line closed loops ────────
     '
-    '  For each unvisited line i0, try traversing from each of
-    '  its two endpoints, looking for a path of 3 more lines
-    '  that closes back to the start.
-    '
-    '  Variables nx,ny track the "current open end" as we walk;
-    '  sx,sy hold the starting vertex we need to return to.
+    '  For each line i0, try traversing from each of its two
+    '  endpoints, looking for 3 more lines that close back to
+    '  the start.  No lines are consumed so shared walls work.
 
     Dim i0 As Integer, i1 As Integer, i2 As Integer, i3 As Integer
-    Dim sd As Integer  ' start direction (0 or 1)
+    Dim sd As Integer
 
     For i0 = 0 To nL - 1
-        If usedLine(i0) Then GoTo NextI0
-
         For sd = 0 To 1
-            Dim sx As Double, sy As Double  ' start vertex
-            Dim nx As Double, ny As Double  ' current open end
+            Dim sx As Double, sy As Double
+            Dim nx As Double, ny As Double
 
             If sd = 0 Then
                 sx = lx1(i0) : sy = ly1(i0)
@@ -218,7 +218,6 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
 
             For i1 = 0 To nL - 1
                 If i1 = i0 Then GoTo NextI1
-                If usedLine(i1) Then GoTo NextI1
 
                 Dim nx1 As Double, ny1 As Double
                 If PtNear(lx1(i1), ly1(i1), nx, ny) Then
@@ -229,12 +228,10 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
                     GoTo NextI1
                 End If
 
-                ' Don't close the loop after only 2 lines
                 If PtNear(nx1, ny1, sx, sy) Then GoTo NextI1
 
                 For i2 = 0 To nL - 1
                     If i2 = i0 Or i2 = i1 Then GoTo NextI2
-                    If usedLine(i2) Then GoTo NextI2
 
                     Dim nx2 As Double, ny2 As Double
                     If PtNear(lx1(i2), ly1(i2), nx1, ny1) Then
@@ -250,9 +247,7 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
 
                     For i3 = 0 To nL - 1
                         If i3 = i0 Or i3 = i1 Or i3 = i2 Then GoTo NextI3
-                        If usedLine(i3) Then GoTo NextI3
 
-                        ' i3 must connect nx2 back to sx
                         Dim closes As Boolean : closes = False
                         If PtNear(lx1(i3), ly1(i3), nx2, ny2) And _
                            PtNear(lx2(i3), ly2(i3), sx, sy) Then closes = True
@@ -260,24 +255,54 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
                            PtNear(lx1(i3), ly1(i3), sx, sy) Then closes = True
 
                         If closes Then
-                            ' ── Store the loop ───────────────
-                            Dim loopL(3) As Integer
-                            loopL(0) = i0 : loopL(1) = i1
-                            loopL(2) = i2 : loopL(3) = i3
+                            ' ── Sort the 4 indices for dedup ─
+                            Dim srt(3) As Integer
+                            srt(0) = i0 : srt(1) = i1
+                            srt(2) = i2 : srt(3) = i3
 
-                            Dim li As Integer
-                            For li = 0 To 3
-                                Dim lIdx As Integer : lIdx = loopL(li)
-                                contPts(nFound, li * 6 + 0) = lx1(lIdx)
-                                contPts(nFound, li * 6 + 1) = ly1(lIdx)
-                                contPts(nFound, li * 6 + 2) = lz1(lIdx)
-                                contPts(nFound, li * 6 + 3) = lx2(lIdx)
-                                contPts(nFound, li * 6 + 4) = ly2(lIdx)
-                                contPts(nFound, li * 6 + 5) = lz2(lIdx)
-                                usedLine(lIdx) = True
-                            Next li
-                            nFound = nFound + 1
-                            GoTo NextI0   ' move on; this i0 is done
+                            Dim ii As Integer, jj As Integer, tmp As Integer
+                            For ii = 0 To 2
+                                For jj = ii + 1 To 3
+                                    If srt(jj) < srt(ii) Then
+                                        tmp = srt(ii) : srt(ii) = srt(jj) : srt(jj) = tmp
+                                    End If
+                                Next jj
+                            Next ii
+
+                            ' ── Check for duplicate ───────────
+                            Dim isDup As Boolean : isDup = False
+                            Dim di As Integer
+                            For di = 0 To nFound - 1
+                                If foundSets(di, 0) = srt(0) And _
+                                   foundSets(di, 1) = srt(1) And _
+                                   foundSets(di, 2) = srt(2) And _
+                                   foundSets(di, 3) = srt(3) Then
+                                    isDup = True : Exit For
+                                End If
+                            Next di
+
+                            If Not isDup Then
+                                foundSets(nFound, 0) = srt(0)
+                                foundSets(nFound, 1) = srt(1)
+                                foundSets(nFound, 2) = srt(2)
+                                foundSets(nFound, 3) = srt(3)
+
+                                Dim loopL(3) As Integer
+                                loopL(0) = i0 : loopL(1) = i1
+                                loopL(2) = i2 : loopL(3) = i3
+
+                                Dim li As Integer
+                                For li = 0 To 3
+                                    Dim lIdx As Integer : lIdx = loopL(li)
+                                    contPts(nFound, li * 6 + 0) = lx1(lIdx)
+                                    contPts(nFound, li * 6 + 1) = ly1(lIdx)
+                                    contPts(nFound, li * 6 + 2) = lz1(lIdx)
+                                    contPts(nFound, li * 6 + 3) = lx2(lIdx)
+                                    contPts(nFound, li * 6 + 4) = ly2(lIdx)
+                                    contPts(nFound, li * 6 + 5) = lz2(lIdx)
+                                Next li
+                                nFound = nFound + 1
+                            End If
                         End If
 NextI3:
                     Next i3
@@ -286,7 +311,6 @@ NextI2:
 NextI1:
             Next i1
         Next sd
-NextI0:
     Next i0
 End Sub
 

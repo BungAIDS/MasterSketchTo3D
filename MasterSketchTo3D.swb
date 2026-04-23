@@ -94,9 +94,10 @@ Sub CreateStiffeners()
     '    (bypasses GetSketchContours which behaves unexpectedly
     '     for assembly sketches)
     Dim contPts()  As Double
+    Dim contSegs() As Object
     Dim nFound     As Integer
 
-    Call FindRectLoops(swSketch, contPts, nFound)
+    Call FindRectLoops(swSketch, contPts, contSegs, nFound)
 
     If nFound = 0 Then
         MsgBox "No closed 4-sided rectangles found in the sketch." & Chr(10) & _
@@ -131,9 +132,15 @@ Sub CreateStiffeners()
         For pi = 0 To 23
             pts(pi) = contPts(bi, pi)
         Next pi
+        ' Extract the 4 SketchSegment refs for this rectangle
+        Dim segs(0 To 3) As Object
+        Dim si As Integer
+        For si = 0 To 3
+            Set segs(si) = contSegs(bi, si)
+        Next si
         Dim bOK As Boolean
         bOK = BuildStiffener(swApp, swAssy, swModel, swMU, swSk2Model, _
-                             swRefEnt, nRefType, pts, sPlaneName, contNames(bi))
+                             swRefEnt, nRefType, pts, segs, sPlaneName, contNames(bi))
         If Not bOK Then
             If failNames <> "" Then failNames = failNames & ", "
             failNames = failNames & contNames(bi)
@@ -168,6 +175,7 @@ End Sub
 ' ============================================================
 Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
                           ByRef contPts() As Double, _
+                          ByRef contSegs() As Object, _
                           ByRef nFound As Integer)
     nFound = 0
 
@@ -179,6 +187,7 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
     Dim maxL As Integer : maxL = UBound(vSegs) + 1
     ReDim lx1(0 To maxL) As Double, ly1(0 To maxL) As Double, lz1(0 To maxL) As Double
     ReDim lx2(0 To maxL) As Double, ly2(0 To maxL) As Double, lz2(0 To maxL) As Double
+    ReDim lineSegs(0 To maxL) As Object   ' maps line-index -> SketchSegment
     Dim nL As Integer : nL = 0
 
     Dim qi As Integer
@@ -194,6 +203,7 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
             Set qp2 = qLn.GetEndPoint2()
             lx1(nL) = qp1.X : ly1(nL) = qp1.Y : lz1(nL) = qp1.Z
             lx2(nL) = qp2.X : ly2(nL) = qp2.Y : lz2(nL) = qp2.Z
+            Set lineSegs(nL) = qSeg          ' keep the object reference
             nL = nL + 1
         End If
     Next qi
@@ -201,6 +211,7 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
     If nL < 4 Then Exit Sub
 
     ReDim contPts(0 To nL * 2, 0 To 23) As Double
+    ReDim contSegs(0 To nL * 2, 0 To 3) As Object
 
     ' Deduplication by centroid.
     ' Rectangles are always drawn as independent sets of 4 lines, but
@@ -332,6 +343,7 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
                                     contPts(nFound, li * 6 + 3) = lx2(lIdx)
                                     contPts(nFound, li * 6 + 4) = ly2(lIdx)
                                     contPts(nFound, li * 6 + 5) = lz2(lIdx)
+                                    Set contSegs(nFound, li) = lineSegs(lIdx)
                                 Next li
                                 nFound = nFound + 1
                             End If
@@ -451,6 +463,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
                                 swSk2Model As SldWorks.MathTransform, _
                                 swRefEnt   As Object, nRefType As Long, _
                                 pts()      As Double, _
+                                segs()     As Object, _
                                 sPlaneName As String, _
                                 sName      As String) As Boolean
     BuildStiffener = False
@@ -477,54 +490,106 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── B. Get virtual part model doc ────────────────────────
+    ' ── B. Explicitly enter edit-component mode ───────────────
+    '    InsertNewVirtualPart does not reliably switch ActiveDoc.
     Dim swPart As SldWorks.ModelDoc2
     Set swPart = swApp.ActiveDoc
+    If swPart Is Nothing Or (swPart Is swModel) Then
+        swModel.ClearSelection2 True
+        swComp.Select4 False, Nothing
+        swAssy.EditPart()
+        Set swPart = swApp.ActiveDoc
+    End If
+    If swPart Is Nothing Then
+        swAssy.EditAssembly
+        Exit Function
+    End If
 
     ' ── C. Assembly -> part transform ────────────────────────
     Dim swAssy2Part As SldWorks.MathTransform
     Set swAssy2Part = swComp.Transform2.Inverse()
 
-    ' ── D. Open sketch (handle auto-opened sketch case) ──────
-    Dim swActiveSk As SldWorks.Sketch
-    Set swActiveSk = swPart.SketchManager.ActiveSketch
+    ' ── D. Determine which standard plane matches the sketch ─
+    '    Transform the sketch Z-normal into assembly model space,
+    '    then pick Front/Top/Right by the dominant axis.
+    Dim skNorm(2) As Double
+    skNorm(0) = 0# : skNorm(1) = 0# : skNorm(2) = 1#
+    Dim swNV As SldWorks.MathVector
+    Set swNV = swMU.CreateVector(skNorm)
+    Set swNV = swNV.MultiplyTransform(swSk2Model)
+    Dim normArr As Variant : normArr = swNV.ArrayData
 
-    If swActiveSk Is Nothing Then
-        swPart.Extension.SelectByID2 "Front Plane", "PLANE", _
-            0, 0, 0, False, 0, Nothing, 0
-        swPart.SketchManager.InsertSketch True
+    Dim skPlaneName As String
+    Dim absX As Double, absY As Double, absZ As Double
+    absX = Abs(normArr(0)) : absY = Abs(normArr(1)) : absZ = Abs(normArr(2))
+    If absZ >= absX And absZ >= absY Then
+        skPlaneName = "Front Plane"
+    ElseIf absY >= absX Then
+        skPlaneName = "Top Plane"
+    Else
+        skPlaneName = "Right Plane"
     End If
 
-    ' ── E. Draw the 4 rectangle lines ────────────────────────
-    '    sketch-local -> assembly model -> part model (XY plane)
-    Dim s As Integer
-    For s = 0 To 3
-        Dim a1(2) As Double, a2(2) As Double
-        a1(0) = pts(s * 6 + 0) : a1(1) = pts(s * 6 + 1) : a1(2) = pts(s * 6 + 2)
-        a2(0) = pts(s * 6 + 3) : a2(1) = pts(s * 6 + 4) : a2(2) = pts(s * 6 + 5)
+    ' Close any auto-opened sketch so we can open on the right plane.
+    Dim swActiveSk As SldWorks.Sketch
+    Set swActiveSk = swPart.SketchManager.ActiveSketch
+    If Not swActiveSk Is Nothing Then swPart.SketchManager.InsertSketch True
 
-        Dim swMP1 As SldWorks.MathPoint
-        Dim swMP2 As SldWorks.MathPoint
-        Set swMP1 = swMU.CreatePoint(a1)
-        Set swMP2 = swMU.CreatePoint(a2)
-
-        Set swMP1 = swMP1.MultiplyTransform(swSk2Model)
-        Set swMP2 = swMP2.MultiplyTransform(swSk2Model)
-
-        Set swMP1 = swMP1.MultiplyTransform(swAssy2Part)
-        Set swMP2 = swMP2.MultiplyTransform(swAssy2Part)
-
-        Dim d1 As Variant, d2 As Variant
-        d1 = swMP1.ArrayData
-        d2 = swMP2.ArrayData
-
-        swPart.SketchManager.CreateLine d1(0), d1(1), 0#, d2(0), d2(1), 0#
-    Next s
-
-    ' ── F. Close sketch ───────────────────────────────────────
+    swPart.Extension.SelectByID2 skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0
     swPart.SketchManager.InsertSketch True
 
-    ' ── G. Select the sketch profile (mark = 0) ──────────────
+    ' ── E. Convert Entities from assembly sketch (primary) ───
+    '    Select all 4 SketchSegment objects then project them
+    '    into the virtual-part sketch via SketchUseEdge3.
+    Dim usedConvert As Boolean : usedConvert = False
+    If Not segs(0) Is Nothing Then
+        Dim allSel As Boolean : allSel = True
+        Dim s As Integer
+        For s = 0 To 3
+            Dim seg As SldWorks.SketchSegment
+            Set seg = segs(s)
+            If Not seg.Select4(s > 0, Nothing) Then
+                allSel = False : Exit For
+            End If
+        Next s
+        If allSel Then
+            usedConvert = swPart.SketchManager.SketchUseEdge3(False, False)
+        End If
+        If Not usedConvert Then swPart.ClearSelection2 True
+    End If
+
+    ' ── F. Fallback: draw 4 lines from stored coordinates ────
+    '    Uses full 3D coords so the sketch plane projection is
+    '    correct regardless of which plane the sketch is on.
+    If Not usedConvert Then
+        For s = 0 To 3
+            Dim a1(2) As Double, a2(2) As Double
+            a1(0) = pts(s * 6 + 0) : a1(1) = pts(s * 6 + 1) : a1(2) = pts(s * 6 + 2)
+            a2(0) = pts(s * 6 + 3) : a2(1) = pts(s * 6 + 4) : a2(2) = pts(s * 6 + 5)
+
+            Dim swMP1 As SldWorks.MathPoint
+            Dim swMP2 As SldWorks.MathPoint
+            Set swMP1 = swMU.CreatePoint(a1)
+            Set swMP2 = swMU.CreatePoint(a2)
+
+            Set swMP1 = swMP1.MultiplyTransform(swSk2Model)
+            Set swMP2 = swMP2.MultiplyTransform(swSk2Model)
+
+            Set swMP1 = swMP1.MultiplyTransform(swAssy2Part)
+            Set swMP2 = swMP2.MultiplyTransform(swAssy2Part)
+
+            Dim d1 As Variant, d2 As Variant
+            d1 = swMP1.ArrayData
+            d2 = swMP2.ArrayData
+
+            swPart.SketchManager.CreateLine d1(0), d1(1), d1(2), d2(0), d2(1), d2(2)
+        Next s
+    End If
+
+    ' ── G. Close sketch ───────────────────────────────────────
+    swPart.SketchManager.InsertSketch True
+
+    ' ── H. Select the sketch profile (mark = 0) ──────────────
     Dim swFt       As SldWorks.Feature
     Dim swLastSkFt As SldWorks.Feature
     Set swFt = swPart.FirstFeature()
@@ -536,11 +601,11 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     swPart.ClearSelection2 True
     If Not swLastSkFt Is Nothing Then swLastSkFt.Select2 False, 0
 
-    ' ── H. Add offset plane as Up To target (mark = 1) ───────
+    ' ── I. Add offset plane as Up To target (mark = 1) ───────
     swPart.Extension.SelectByID2 sPlaneName, "PLANE", _
         0, 0, 0, True, 1, Nothing, 0
 
-    ' ── I. Extrude Up To Surface ──────────────────────────────
+    ' ── J. Extrude Up To Surface ──────────────────────────────
     Dim swExtrude As SldWorks.Feature
     Set swExtrude = swPart.FeatureManager.FeatureExtrusion2( _
         True, False, False, _
@@ -554,7 +619,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     swPart.SelectionManager.EnableContourSelection = False
 
-    ' ── J. Exit edit mode, rename ─────────────────────────────
+    ' ── K. Exit edit mode, rename ─────────────────────────────
     swAssy.EditAssembly
     swComp.Name2 = sName
 

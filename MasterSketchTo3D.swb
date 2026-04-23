@@ -124,18 +124,32 @@ Sub CreateStiffeners()
     Next bi
 
     ' ── 8. Build stiffeners ───────────────────────────────────
+    Dim failNames As String : failNames = ""
     For bi = 0 To nFound - 1
         Dim pts(0 To 23) As Double
         Dim pi As Integer
         For pi = 0 To 23
             pts(pi) = contPts(bi, pi)
         Next pi
-        Call BuildStiffener(swApp, swAssy, swModel, swMU, swSk2Model, _
-                            swRefEnt, nRefType, pts, sPlaneName, contNames(bi))
+        Dim bOK As Boolean
+        bOK = BuildStiffener(swApp, swAssy, swModel, swMU, swSk2Model, _
+                             swRefEnt, nRefType, pts, sPlaneName, contNames(bi))
+        If Not bOK Then
+            If failNames <> "" Then failNames = failNames & ", "
+            failNames = failNames & contNames(bi)
+        End If
     Next bi
 
     swModel.EditRebuild3
-    MsgBox "Done!  " & nFound & " stiffener(s) created.", vbInformation
+
+    If failNames = "" Then
+        MsgBox "Done!  " & nFound & " stiffener(s) created.", vbInformation
+    Else
+        MsgBox "Done!  " & nFound & " stiffener(s) created." & Chr(10) & _
+               "Extrude failed for: " & failNames & Chr(10) & _
+               "Offset plane may be on the wrong side - flip it and rerun.", _
+               vbExclamation
+    End If
     Exit Sub
 
 BadInput:
@@ -258,16 +272,37 @@ Private Sub FindRectLoops(swSketch As SldWorks.Sketch, _
                            PtNear(lx1(i3), ly1(i3), sx, sy) Then closes = True
 
                         If closes Then
+                            ' ── Perpendicularity check ────────
+                            ' All 4 interior angles must be ~90°.
+                            ' d0..d3 are the traversal direction
+                            ' vectors around the loop.
+                            Dim d0x As Double, d0y As Double
+                            Dim d1x As Double, d1y As Double
+                            Dim d2x As Double, d2y As Double
+                            Dim d3x As Double, d3y As Double
+                            d0x = nx - sx   : d0y = ny - sy
+                            d1x = nx1 - nx  : d1y = ny1 - ny
+                            d2x = nx2 - nx1 : d2y = ny2 - ny1
+                            d3x = sx - nx2  : d3y = sy - ny2
+                            If Not (IsPerp(d0x, d0y, d1x, d1y) And _
+                                    IsPerp(d1x, d1y, d2x, d2y) And _
+                                    IsPerp(d2x, d2y, d3x, d3y) And _
+                                    IsPerp(d3x, d3y, d0x, d0y)) Then GoTo NextI3
+
                             ' ── Compute centroid of this loop ─
                             ' Each of the 4 corners appears as an
                             ' endpoint of exactly 2 segments, so
                             ' averaging all 8 stored XY values
                             ' gives the correct rectangle centre.
+                            ' IMPORTANT: reset accumulators here —
+                            ' VBA Dim inside a loop does NOT reset
+                            ' on each iteration (procedure scope).
                             Dim loopL(3) As Integer
                             loopL(0) = i0 : loopL(1) = i1
                             loopL(2) = i2 : loopL(3) = i3
 
                             Dim cxNew As Double, cyNew As Double
+                            cxNew = 0 : cyNew = 0
                             Dim li As Integer
                             For li = 0 To 3
                                 Dim lIdx As Integer : lIdx = loopL(li)
@@ -318,6 +353,17 @@ Private Function PtNear(x1 As Double, y1 As Double, _
     Dim dx As Double : dx = x1 - x2
     Dim dy As Double : dy = y1 - y2
     PtNear = (dx * dx + dy * dy) < (EPS * EPS)
+End Function
+
+
+' Returns True if 2-D vectors (dx1,dy1) and (dx2,dy2) are within
+' 5 degrees of perpendicular  (|cos θ| < sin 5° ≈ 0.087).
+Private Function IsPerp(dx1 As Double, dy1 As Double, _
+                         dx2 As Double, dy2 As Double) As Boolean
+    Dim m1 As Double : m1 = Sqr(dx1 * dx1 + dy1 * dy1)
+    Dim m2 As Double : m2 = Sqr(dx2 * dx2 + dy2 * dy2)
+    If m1 < 1E-12 Or m2 < 1E-12 Then IsPerp = False : Exit Function
+    IsPerp = Abs(dx1 * dx2 + dy1 * dy2) / (m1 * m2) < 0.087
 End Function
 
 
@@ -397,15 +443,17 @@ End Function
 
 ' Creates one virtual stiffener part from pre-cached contour pts
 ' and extrudes it Up To Surface to the offset plane.
-Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
-                           swAssy     As SldWorks.AssemblyDoc, _
-                           swModel    As SldWorks.ModelDoc2, _
-                           swMU       As SldWorks.MathUtility, _
-                           swSk2Model As SldWorks.MathTransform, _
-                           swRefEnt   As Object, nRefType As Long, _
-                           pts()      As Double, _
-                           sPlaneName As String, _
-                           sName      As String)
+' Returns True on success, False if extrude failed.
+Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
+                                swAssy     As SldWorks.AssemblyDoc, _
+                                swModel    As SldWorks.ModelDoc2, _
+                                swMU       As SldWorks.MathUtility, _
+                                swSk2Model As SldWorks.MathTransform, _
+                                swRefEnt   As Object, nRefType As Long, _
+                                pts()      As Double, _
+                                sPlaneName As String, _
+                                sName      As String) As Boolean
+    BuildStiffener = False
 
     ' ── A. Select placement face/plane, create virtual part ──
     swModel.ClearSelection2 True
@@ -427,11 +475,7 @@ Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
     Dim lStatus As Long
     lStatus = swAssy.InsertNewVirtualPart(Nothing, swComp)
 
-    If swComp Is Nothing Then
-        MsgBox "Could not create virtual part for """ & sName & """" & Chr(10) & _
-               "(status = " & lStatus & ").", vbExclamation
-        Exit Sub
-    End If
+    If swComp Is Nothing Then Exit Function
 
     ' ── B. Get virtual part model doc ────────────────────────
     Dim swPart As SldWorks.ModelDoc2
@@ -510,13 +554,10 @@ Private Sub BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     swPart.SelectionManager.EnableContourSelection = False
 
-    If swExtrude Is Nothing Then
-        MsgBox "Extrude failed for """ & sName & """." & Chr(10) & _
-               "Offset plane may be on the wrong side - flip it and rerun.", vbExclamation
-    End If
-
     ' ── J. Exit edit mode, rename ─────────────────────────────
     swAssy.EditAssembly
     swComp.Name2 = sName
 
-End Sub
+    BuildStiffener = (Not swExtrude Is Nothing)
+
+End Function

@@ -501,65 +501,20 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Dim swAssy2Part As SldWorks.MathTransform
     Set swAssy2Part = swComp.Transform2.Inverse()
 
-    ' ── D. Use the sketch InsertNewVirtualPart auto-opened ───
-    '    That sketch is already on the same plane as the assembly
-    '    sketch (we selected it just before inserting the part).
-    '    Only open a new sketch manually if none is active.
+    ' ── D. Ensure a sketch is open ───────────────────────────
     Dim swActiveSk As SldWorks.Sketch
     Set swActiveSk = swPart.SketchManager.ActiveSketch
     If swActiveSk Is Nothing Then
         swPart.SketchManager.InsertSketch True
     End If
 
-    ' ── E. Convert Entities from assembly sketch (primary) ───
-    '    Select all 4 SketchSegment objects then project them
-    '    into the virtual-part sketch via SketchUseEdge3.
-    Dim usedConvert As Boolean : usedConvert = False
-    If Not segs(0) Is Nothing Then
-        Dim allSel As Boolean : allSel = True
-        Dim s As Integer
-        Dim skSelData As SldWorks.SelectData
-        Set skSelData = swModel.SelectionManager.CreateSelectData()
-        For s = 0 To 3
-            Dim seg As SldWorks.SketchSegment
-            Set seg = segs(s)
-            If Not seg.Select4(s > 0, skSelData) Then
-                allSel = False : Exit For
-            End If
-        Next s
-        If allSel Then
-            usedConvert = swPart.SketchManager.SketchUseEdge3(False, False)
-        End If
-        If Not usedConvert Then swPart.ClearSelection2 True
-    End If
-
-    ' ── F. Fallback: draw 4 lines from stored coordinates ────
-    '    Uses full 3D coords so the sketch plane projection is
-    '    correct regardless of which plane the sketch is on.
-    If Not usedConvert Then
-        For s = 0 To 3
-            Dim a1(2) As Double, a2(2) As Double
-            a1(0) = pts(s * 6 + 0) : a1(1) = pts(s * 6 + 1) : a1(2) = pts(s * 6 + 2)
-            a2(0) = pts(s * 6 + 3) : a2(1) = pts(s * 6 + 4) : a2(2) = pts(s * 6 + 5)
-
-            Dim swMP1 As SldWorks.MathPoint
-            Dim swMP2 As SldWorks.MathPoint
-            Set swMP1 = swMU.CreatePoint(a1)
-            Set swMP2 = swMU.CreatePoint(a2)
-
-            Set swMP1 = swMP1.MultiplyTransform(swSk2Model)
-            Set swMP2 = swMP2.MultiplyTransform(swSk2Model)
-
-            Set swMP1 = swMP1.MultiplyTransform(swAssy2Part)
-            Set swMP2 = swMP2.MultiplyTransform(swAssy2Part)
-
-            Dim d1 As Variant, d2 As Variant
-            d1 = swMP1.ArrayData
-            d2 = swMP2.ArrayData
-
-            swPart.SketchManager.CreateLine d1(0), d1(1), d1(2), d2(0), d2(1), d2(2)
-        Next s
-    End If
+    ' ── E. Draw hardcoded 100mm square (diagnostic) ──────────
+    '    Just proving lines land in the sketch before worrying
+    '    about real coordinates or parametric links.
+    swPart.SketchManager.CreateLine 0, 0, 0, 0.1, 0, 0
+    swPart.SketchManager.CreateLine 0.1, 0, 0, 0.1, 0.1, 0
+    swPart.SketchManager.CreateLine 0.1, 0.1, 0, 0, 0.1, 0
+    swPart.SketchManager.CreateLine 0, 0.1, 0, 0, 0, 0
 
     ' ── G. Close sketch ───────────────────────────────────────
     swPart.SketchManager.InsertSketch True

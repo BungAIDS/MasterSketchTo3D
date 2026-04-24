@@ -490,44 +490,26 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── B. Get virtual part doc ───────────────────────────────
-    '    InsertNewVirtualPart activates the new part automatically.
+    ' ── B. Get virtual part doc via component reference ──────
+    '    GetModelDoc2 is definitive — ActiveDoc may still return
+    '    the assembly if InsertNewVirtualPart hasn't switched it.
     Dim swPart As SldWorks.ModelDoc2
-    Set swPart = swApp.ActiveDoc
+    Set swPart = swComp.GetModelDoc2()
     If swPart Is Nothing Then Exit Function
 
     ' ── C. Assembly -> part transform ────────────────────────
     Dim swAssy2Part As SldWorks.MathTransform
     Set swAssy2Part = swComp.Transform2.Inverse()
 
-    ' ── D. Determine which standard plane matches the sketch ─
-    '    Transform the sketch Z-normal into assembly model space,
-    '    then pick Front/Top/Right by the dominant axis.
-    Dim skNorm(2) As Double
-    skNorm(0) = 0# : skNorm(1) = 0# : skNorm(2) = 1#
-    Dim swNV As SldWorks.MathVector
-    Set swNV = swMU.CreateVector(skNorm)
-    Set swNV = swNV.MultiplyTransform(swSk2Model)
-    Dim normArr As Variant : normArr = swNV.ArrayData
-
-    Dim skPlaneName As String
-    Dim absX As Double, absY As Double, absZ As Double
-    absX = Abs(normArr(0)) : absY = Abs(normArr(1)) : absZ = Abs(normArr(2))
-    If absZ >= absX And absZ >= absY Then
-        skPlaneName = "Front Plane"
-    ElseIf absY >= absX Then
-        skPlaneName = "Top Plane"
-    Else
-        skPlaneName = "Right Plane"
-    End If
-
-    ' Close any auto-opened sketch so we can open on the right plane.
+    ' ── D. Use the sketch InsertNewVirtualPart auto-opened ───
+    '    That sketch is already on the same plane as the assembly
+    '    sketch (we selected it just before inserting the part).
+    '    Only open a new sketch manually if none is active.
     Dim swActiveSk As SldWorks.Sketch
     Set swActiveSk = swPart.SketchManager.ActiveSketch
-    If Not swActiveSk Is Nothing Then swPart.SketchManager.InsertSketch True
-
-    swPart.Extension.SelectByID2 skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0
-    swPart.SketchManager.InsertSketch True
+    If swActiveSk Is Nothing Then
+        swPart.SketchManager.InsertSketch True
+    End If
 
     ' ── E. Convert Entities from assembly sketch (primary) ───
     '    Select all 4 SketchSegment objects then project them

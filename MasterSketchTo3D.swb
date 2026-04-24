@@ -490,42 +490,33 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── B. Diagnose what ActiveDoc is after InsertNewVirtualPart
-    Dim swActiveAfter As SldWorks.ModelDoc2
-    Set swActiveAfter = swApp.ActiveDoc
-    Dim sDocInfo As String
-    If swActiveAfter Is Nothing Then
-        sDocInfo = "Nothing"
-    ElseIf swActiveAfter Is swModel Then
-        sDocInfo = "ASSEMBLY (same as swModel): " & swActiveAfter.GetTitle()
-    Else
-        sDocInfo = "OTHER doc (type=" & swActiveAfter.GetType() & "): " & swActiveAfter.GetTitle()
-    End If
-    MsgBox "ActiveDoc after InsertNewVirtualPart:" & Chr(10) & sDocInfo, vbInformation
-    Exit Function
+    ' ── B. Enter edit mode for the virtual component ─────────────
+    swComp.Select4 False, Nothing
+    swAssy.EditPart2 False
 
-    ' ── C. Convert Entities: project the 4 assembly sketch ───
-    '    segments into the component sketch as driven references.
+    ' ── C. Get the now-active part document ──────────────────────
+    Dim swPart As SldWorks.ModelDoc2
+    Set swPart = swApp.ActiveDoc
+    If swPart Is Nothing Or (swPart Is swModel) Then Exit Function
+
+    ' ── D. Open a sketch on the part's Front Plane ───────────────
+    swPart.Extension.SelectByID2 "Front Plane", "PLANE", _
+        0, 0, 0, False, 0, Nothing, 0
+    swPart.SketchManager.InsertSketch True
+
+    ' ── E. Select the 4 assembly segments, Convert Entities ──────
     Dim s As Integer
     For s = 0 To 3
         Dim seg As SldWorks.SketchSegment
         Set seg = segs(s)
         seg.Select4 (s > 0), Nothing
     Next s
-    swModel.SketchManager.SketchUseEdge3 False, False
+    swPart.SketchManager.SketchUseEdge3 False, False
 
-    ' ── D. Close sketch ───────────────────────────────────────
-    swModel.SketchManager.InsertSketch True
+    ' ── F. Close the sketch ──────────────────────────────────────
+    swPart.SketchManager.InsertSketch True
 
-    ' ── E. Get virtual part doc for feature operations ────────
-    Dim swPart As SldWorks.ModelDoc2
-    Set swPart = swApp.ActiveDoc
-    If swPart Is Nothing Or (swPart Is swModel) Then
-        Set swPart = swComp.GetModelDoc2()
-    End If
-    If swPart Is Nothing Then Exit Function
-
-    ' ── F. Select the sketch profile (mark = 0) ──────────────
+    ' ── G. Select the sketch profile (mark = 0) ──────────────
     Dim swFt       As SldWorks.Feature
     Dim swLastSkFt As SldWorks.Feature
     Set swFt = swPart.FirstFeature()

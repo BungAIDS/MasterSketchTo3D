@@ -490,36 +490,37 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── B. Get virtual part doc via component reference ──────
-    '    GetModelDoc2 is definitive — ActiveDoc may still return
-    '    the assembly if InsertNewVirtualPart hasn't switched it.
-    Dim swPart As SldWorks.ModelDoc2
-    Set swPart = swComp.GetModelDoc2()
-    If swPart Is Nothing Then Exit Function
-
-    ' ── C. Assembly -> part transform ────────────────────────
-    Dim swAssy2Part As SldWorks.MathTransform
-    Set swAssy2Part = swComp.Transform2.Inverse()
-
-    ' ── D. Ensure a sketch is open ───────────────────────────
+    ' ── B. Sketch ops go through the assembly SketchManager ──
+    '    When editing a component in-context, swModel is still
+    '    the active editing context — not the component's doc.
     Dim swActiveSk As SldWorks.Sketch
-    Set swActiveSk = swPart.SketchManager.ActiveSketch
+    Set swActiveSk = swModel.SketchManager.ActiveSketch
     If swActiveSk Is Nothing Then
-        swPart.SketchManager.InsertSketch True
+        swModel.SketchManager.InsertSketch True
     End If
 
-    ' ── E. Draw hardcoded 100mm square (diagnostic) ──────────
-    '    Just proving lines land in the sketch before worrying
-    '    about real coordinates or parametric links.
-    swPart.SketchManager.CreateLine 0, 0, 0, 0.1, 0, 0
-    swPart.SketchManager.CreateLine 0.1, 0, 0, 0.1, 0.1, 0
-    swPart.SketchManager.CreateLine 0.1, 0.1, 0, 0, 0.1, 0
-    swPart.SketchManager.CreateLine 0, 0.1, 0, 0, 0, 0
+    ' ── C. Convert Entities: project the 4 assembly sketch ───
+    '    segments into the component sketch as driven references.
+    Dim s As Integer
+    For s = 0 To 3
+        Dim seg As SldWorks.SketchSegment
+        Set seg = segs(s)
+        seg.Select4 (s > 0), Nothing
+    Next s
+    swModel.SketchManager.SketchUseEdge3 False, False
 
-    ' ── G. Close sketch ───────────────────────────────────────
-    swPart.SketchManager.InsertSketch True
+    ' ── D. Close sketch ───────────────────────────────────────
+    swModel.SketchManager.InsertSketch True
 
-    ' ── H. Select the sketch profile (mark = 0) ──────────────
+    ' ── E. Get virtual part doc for feature operations ────────
+    Dim swPart As SldWorks.ModelDoc2
+    Set swPart = swApp.ActiveDoc
+    If swPart Is Nothing Or (swPart Is swModel) Then
+        Set swPart = swComp.GetModelDoc2()
+    End If
+    If swPart Is Nothing Then Exit Function
+
+    ' ── F. Select the sketch profile (mark = 0) ──────────────
     Dim swFt       As SldWorks.Feature
     Dim swLastSkFt As SldWorks.Feature
     Set swFt = swPart.FirstFeature()

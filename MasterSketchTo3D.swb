@@ -490,14 +490,23 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── B. InsertNewVirtualPart already auto-entered component edit
-    '    mode and auto-opened a sketch on the pre-selected face/plane.
-    '    Select the 4 assembly sketch segments and Convert Entities. ──
+    ' ── B. Select the 4 assembly sketch segments as EXTSKETCHSEGMENT
+    '    using midpoints transformed to model space, then Convert Entities.
     Dim s As Integer
     For s = 0 To 3
-        Dim seg As SldWorks.SketchSegment
-        Set seg = segs(s)
-        seg.Select2 (s > 0), 0
+        Dim mx As Double, my As Double, mz As Double
+        mx = (pts(s * 6 + 0) + pts(s * 6 + 3)) / 2
+        my = (pts(s * 6 + 1) + pts(s * 6 + 4)) / 2
+        mz = (pts(s * 6 + 2) + pts(s * 6 + 5)) / 2
+        Dim ptArr(2) As Double
+        ptArr(0) = mx : ptArr(1) = my : ptArr(2) = mz
+        Dim swPt As SldWorks.MathPoint
+        Set swPt = swMU.CreatePoint(ptArr)
+        Set swPt = swPt.MultiplyTransform(swSk2Model)
+        Dim aPt As Variant
+        aPt = swPt.ArrayData
+        swModel.Extension.SelectByID2 "", "EXTSKETCHSEGMENT", _
+            aPt(0), aPt(1), aPt(2), (s > 0), 0, Nothing, 0
     Next s
     swModel.SketchManager.SketchUseEdge3 False, False
     swModel.ClearSelection2 True

@@ -492,7 +492,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     ' ── B. Enter edit mode for the virtual component ─────────────
     swComp.Select2 False, 0
-    swAssy.EditPart2 False
+    swModel.EditPart
 
     ' ── C. Get the now-active part document ──────────────────────
     Dim swPart As SldWorks.ModelDoc2

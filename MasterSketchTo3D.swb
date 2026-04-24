@@ -491,7 +491,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     If swComp Is Nothing Then Exit Function
 
     ' ── B. Enter edit mode for the virtual component ─────────────
-    swComp.Select4 False, Nothing
+    swComp.Select2 False, 0
     swAssy.EditPart2 False
 
     ' ── C. Get the now-active part document ──────────────────────
@@ -509,7 +509,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     For s = 0 To 3
         Dim seg As SldWorks.SketchSegment
         Set seg = segs(s)
-        seg.Select4 (s > 0), Nothing
+        seg.Select2 (s > 0), 0
     Next s
     swPart.SketchManager.SketchUseEdge3 False, False
 

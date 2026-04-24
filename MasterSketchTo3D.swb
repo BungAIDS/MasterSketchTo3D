@@ -490,20 +490,11 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── B. Explicitly enter edit-component mode ───────────────
-    '    InsertNewVirtualPart does not reliably switch ActiveDoc.
+    ' ── B. Get virtual part doc ───────────────────────────────
+    '    InsertNewVirtualPart activates the new part automatically.
     Dim swPart As SldWorks.ModelDoc2
     Set swPart = swApp.ActiveDoc
-    If swPart Is Nothing Or (swPart Is swModel) Then
-        swModel.ClearSelection2 True
-        swComp.Select4 False, Nothing
-        swAssy.EditPart()
-        Set swPart = swApp.ActiveDoc
-    End If
-    If swPart Is Nothing Then
-        swAssy.EditAssembly
-        Exit Function
-    End If
+    If swPart Is Nothing Then Exit Function
 
     ' ── C. Assembly -> part transform ────────────────────────
     Dim swAssy2Part As SldWorks.MathTransform

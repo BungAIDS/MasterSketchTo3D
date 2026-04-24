@@ -490,14 +490,19 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── B. Sketch ops go through the assembly SketchManager ──
-    '    When editing a component in-context, swModel is still
-    '    the active editing context — not the component's doc.
-    Dim swActiveSk As SldWorks.Sketch
-    Set swActiveSk = swModel.SketchManager.ActiveSketch
-    If swActiveSk Is Nothing Then
-        swModel.SketchManager.InsertSketch True
+    ' ── B. Diagnose what ActiveDoc is after InsertNewVirtualPart
+    Dim swActiveAfter As SldWorks.ModelDoc2
+    Set swActiveAfter = swApp.ActiveDoc
+    Dim sDocInfo As String
+    If swActiveAfter Is Nothing Then
+        sDocInfo = "Nothing"
+    ElseIf swActiveAfter Is swModel Then
+        sDocInfo = "ASSEMBLY (same as swModel): " & swActiveAfter.GetTitle()
+    Else
+        sDocInfo = "OTHER doc (type=" & swActiveAfter.GetType() & "): " & swActiveAfter.GetTitle()
     End If
+    MsgBox "ActiveDoc after InsertNewVirtualPart:" & Chr(10) & sDocInfo, vbInformation
+    Exit Function
 
     ' ── C. Convert Entities: project the 4 assembly sketch ───
     '    segments into the component sketch as driven references.

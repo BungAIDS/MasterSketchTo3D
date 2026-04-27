@@ -490,26 +490,20 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── B. Explicitly enter edit-component mode ───────────────
-    '    InsertNewVirtualPart does not reliably switch ActiveDoc.
-    '    Capture Select4 result in a variable before testing it;
-    '    calling EditPart on an unselected component raises
-    '    "edit part failed" from SolidWorks.
+    ' ── B. Get the virtual part model doc ────────────────────
+    '    Some SW versions auto-enter edit mode after
+    '    InsertNewVirtualPart (ActiveDoc becomes the part).
+    '    If not, GetModelDoc2 gives us the reference directly,
+    '    avoiding version-specific Select/EditPart API calls.
+    Dim bInEditMode As Boolean : bInEditMode = False
     Dim swPart As SldWorks.ModelDoc2
     Set swPart = swApp.ActiveDoc
-    If swPart Is Nothing Or (swPart Is swModel) Then
-        swModel.ClearSelection2 True
-        Dim bCompSel As Boolean
-        bCompSel = swComp.Select2(False, 0)
-        If bCompSel Then
-            swAssy.EditPart2 False
-            Set swPart = swApp.ActiveDoc
-        End If
+    If (Not swPart Is Nothing) And Not (swPart Is swModel) Then
+        bInEditMode = True
+    Else
+        Set swPart = swComp.GetModelDoc2()
     End If
-    If swPart Is Nothing Or (swPart Is swModel) Then
-        swAssy.EditAssembly
-        Exit Function
-    End If
+    If swPart Is Nothing Then Exit Function
 
     ' ── C. Assembly -> part transform ────────────────────────
     Dim swAssy2Part As SldWorks.MathTransform
@@ -627,8 +621,8 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     swPart.SelectionManager.EnableContourSelection = False
 
-    ' ── K. Exit edit mode, rename ─────────────────────────────
-    swAssy.EditAssembly
+    ' ── K. Exit edit mode if entered, rename ─────────────────
+    If bInEditMode Then swAssy.EditAssembly
     swComp.Name2 = sName
 
     BuildStiffener = (Not swExtrude Is Nothing)

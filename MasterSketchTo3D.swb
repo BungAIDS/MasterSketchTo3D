@@ -499,9 +499,8 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Set swPart = swApp.ActiveDoc
     If swPart Is Nothing Or (swPart Is swModel) Then
         swModel.ClearSelection2 True
-        Set selData = swModel.SelectionManager.CreateSelectData()
         Dim bCompSel As Boolean
-        bCompSel = swComp.Select4(False, selData)
+        bCompSel = swComp.Select2(False, 0)
         If bCompSel Then
             swAssy.EditPart2 False
             Set swPart = swApp.ActiveDoc
@@ -556,7 +555,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
         For s = 0 To 3
             Dim seg As SldWorks.SketchSegment
             Set seg = segs(s)
-            bSegSel = seg.Select4(s > 0, selData)
+            bSegSel = seg.Select2(s > 0, 0)
             If Not bSegSel Then
                 allSel = False : Exit For
             End If

@@ -551,11 +551,13 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Dim usedConvert As Boolean : usedConvert = False
     If Not segs(0) Is Nothing Then
         Dim allSel As Boolean : allSel = True
+        Dim bSegSel As Boolean
         Dim s As Integer
         For s = 0 To 3
             Dim seg As SldWorks.SketchSegment
             Set seg = segs(s)
-            If Not seg.Select4(s > 0, Nothing) Then
+            bSegSel = seg.Select4(s > 0, selData)
+            If Not bSegSel Then
                 allSel = False : Exit For
             End If
         Next s

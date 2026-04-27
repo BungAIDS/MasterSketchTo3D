@@ -490,18 +490,22 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── DIAGNOSTIC ───────────────────────────────────────────────
-    Dim swActiveSk As SldWorks.Sketch
-    Set swActiveSk = swModel.SketchManager.ActiveSketch
-    Dim nSelNow As Integer
-    nSelNow = swModel.SelectionManager.GetSelectedObjectCount2(-1)
-    MsgBox "After InsertNewVirtualPart:" & Chr(10) & _
-           "ActiveSketch = " & IIf(swActiveSk Is Nothing, "Nothing (no sketch open)", "OPEN") & Chr(10) & _
-           "SelectedObjectCount = " & nSelNow, vbInformation
-    Exit Function
-    ' ─────────────────────────────────────────────────────────────
+    ' ── B. Select component, enter edit mode, open sketch ────────
+    swComp.Select2 False, 0
+    swModel.EditPart
 
-    ' ── B. Select the 4 assembly sketch segments as EXTSKETCHSEGMENT
+    Dim sSkPlane As String
+    If nRefType <> 2 Then
+        Dim swRefPl As SldWorks.Feature
+        Set swRefPl = swRefEnt
+        sSkPlane = swRefPl.Name
+    Else
+        sSkPlane = "Front Plane"
+    End If
+    swModel.Extension.SelectByID2 sSkPlane, "PLANE", 0, 0, 0, False, 0, Nothing, 0
+    swModel.SketchManager.InsertSketch True
+
+    ' ── C. Select the 4 assembly sketch segments as EXTSKETCHSEGMENT
     '    using midpoints transformed to model space, then Convert Entities.
     Dim s As Integer
     For s = 0 To 3

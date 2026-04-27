@@ -492,7 +492,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     ' ── B. Select component, enter edit mode, open sketch ────────
     swComp.Select2 False, 0
-    swAssy.EditPart swComp
+    swAssy.EditPart True
 
     Dim sSkPlane As String
     If nRefType <> 2 Then

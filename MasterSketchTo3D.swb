@@ -499,8 +499,9 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Set swPart = swApp.ActiveDoc
     If swPart Is Nothing Or (swPart Is swModel) Then
         swModel.ClearSelection2 True
+        Set selData = swModel.SelectionManager.CreateSelectData()
         Dim bCompSel As Boolean
-        bCompSel = swComp.Select4(False, Nothing)
+        bCompSel = swComp.Select4(False, selData)
         If bCompSel Then
             swAssy.EditPart2 False
             Set swPart = swApp.ActiveDoc

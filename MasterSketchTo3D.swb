@@ -505,6 +505,12 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     swModel.Extension.SelectByID2 sSkPlane, "PLANE", 0, 0, 0, False, 0, Nothing, 0
     swModel.SketchManager.InsertSketch True
 
+    ' ── DIAGNOSTIC A: did InsertSketch open a sketch? ─────────────
+    Dim swActiveSk As SldWorks.Sketch
+    Set swActiveSk = swModel.SketchManager.ActiveSketch
+    Dim sMsg As String
+    sMsg = "ActiveSketch after InsertSketch: " & IIf(swActiveSk Is Nothing, "Nothing", "OPEN") & Chr(10)
+
     ' ── C. Select the 4 assembly sketch segments as EXTSKETCHSEGMENT
     '    using midpoints transformed to model space, then Convert Entities.
     Dim s As Integer
@@ -523,8 +529,22 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
         swModel.Extension.SelectByID2 "", "EXTSKETCHSEGMENT", _
             aPt(0), aPt(1), aPt(2), (s > 0), 0, Nothing, 0
     Next s
-    swModel.SketchManager.SketchUseEdge3 False, False
-    swModel.ClearSelection2 True
+
+    ' ── DIAGNOSTIC B: how many entities selected? ─────────────────
+    sMsg = sMsg & "Selected before SketchUseEdge3: " & _
+           swModel.SelectionManager.GetSelectedObjectCount2(-1) & Chr(10)
+
+    Dim bCE As Boolean
+    bCE = swModel.SketchManager.SketchUseEdge3(False, False)
+
+    sMsg = sMsg & "SketchUseEdge3 returned: " & bCE & Chr(10)
+    sMsg = sMsg & "First midpoint (model m): " & _
+           Format(aPt(0), "0.0000") & ", " & Format(aPt(1), "0.0000") & ", " & Format(aPt(2), "0.0000")
+
+    MsgBox sMsg, vbInformation
+    swModel.EditAssembly
+    Exit Function
+    ' ─────────────────────────────────────────────────────────────
 
     ' ── C. Select offset plane as Up To target (mark = 1) ────────
     swModel.Extension.SelectByID2 sPlaneName, "PLANE", _

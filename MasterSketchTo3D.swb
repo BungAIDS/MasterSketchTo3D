@@ -510,6 +510,12 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     swModel.Extension.SelectByID2 sSkPlane, "PLANE", 0, 0, 0, False, 0, Nothing, 0
     swModel.SketchManager.InsertSketch True
 
+    Dim swActSk As SldWorks.Sketch
+    Set swActSk = swModel.SketchManager.ActiveSketch
+    MsgBox "ActiveSketch after InsertSketch: " & IIf(swActSk Is Nothing, "Nothing - EditPart failed", "OPEN - EditPart worked!"), vbInformation
+    swModel.EditAssembly
+    Exit Function
+
     ' ── C. Select the 4 assembly sketch segments as EXTSKETCHSEGMENT
     '    using midpoints transformed to model space, then Convert Entities.
     Dim s As Integer

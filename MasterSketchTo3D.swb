@@ -492,15 +492,18 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     ' ── B. Explicitly enter edit-component mode ───────────────
     '    InsertNewVirtualPart does not reliably switch ActiveDoc.
+    '    Check Select4 return before calling EditPart2 so SolidWorks
+    '    does not raise "edit part failed" on an empty selection.
     Dim swPart As SldWorks.ModelDoc2
     Set swPart = swApp.ActiveDoc
     If swPart Is Nothing Or (swPart Is swModel) Then
         swModel.ClearSelection2 True
-        swComp.Select4 False, Nothing
-        swAssy.EditPart()
-        Set swPart = swApp.ActiveDoc
+        If swComp.Select4(False, Nothing) Then
+            swAssy.EditPart2 False
+            Set swPart = swApp.ActiveDoc
+        End If
     End If
-    If swPart Is Nothing Then
+    If swPart Is Nothing Or (swPart Is swModel) Then
         swAssy.EditAssembly
         Exit Function
     End If

@@ -491,8 +491,13 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     If swComp Is Nothing Then Exit Function
 
     ' ── B. Select component, enter edit mode, open sketch ────────
-    swComp.Select2 False, 0
-    swAssy.EditPart True
+    Dim sTitle As String
+    sTitle = swModel.GetTitle()
+    If InStr(sTitle, ".") > 0 Then sTitle = Left(sTitle, InStr(sTitle, ".") - 1)
+    swModel.Extension.SelectByID2 swComp.Name2 & "@" & sTitle, "COMPONENT", _
+        0, 0, 0, False, 0, Nothing, 0
+    swModel.EditPart
+    swModel.ClearSelection2 True
 
     Dim sSkPlane As String
     If nRefType <> 2 Then

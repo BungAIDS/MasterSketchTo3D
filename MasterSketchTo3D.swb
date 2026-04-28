@@ -530,15 +530,17 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Set swNV = swNV.MultiplyTransform(swSk2Model)
     Dim normArr As Variant : normArr = swNV.ArrayData
 
-    Dim skPlaneName As String
+    ' Pick standard plane index by dominant normal axis.
+    '   0 = Front Plane (normal Z), 1 = Top Plane (normal Y), 2 = Right Plane (normal X)
+    Dim skPlaneIdx As Integer
     Dim absX As Double, absY As Double, absZ As Double
     absX = Abs(normArr(0)) : absY = Abs(normArr(1)) : absZ = Abs(normArr(2))
     If absZ >= absX And absZ >= absY Then
-        skPlaneName = "Front Plane"
+        skPlaneIdx = 0
     ElseIf absY >= absX Then
-        skPlaneName = "Top Plane"
+        skPlaneIdx = 1
     Else
-        skPlaneName = "Right Plane"
+        skPlaneIdx = 2
     End If
 
     ' Close any auto-opened sketch so we can open on the right plane.
@@ -546,11 +548,31 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Set swActiveSk = swModel.SketchManager.ActiveSketch
     If Not swActiveSk Is Nothing Then swModel.SketchManager.InsertSketch True
 
-    ' Plane is in the component (named "Front/Top/Right Plane" there);
-    ' select via swPart.Extension since the assembly proxy doesn't expose
-    ' the component planes by short name.
-    Dim bPlnSel As Boolean
-    bPlnSel = swPart.Extension.SelectByID2(skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    ' Locate the plane by walking the part's feature tree (don't rely on
+    ' a hard-coded "Right Plane" name — templates can rename them).
+    ' Also collect the names so we can show them in debug.
+    Dim swPlaneFt As SldWorks.Feature
+    Dim swFtIter As SldWorks.Feature
+    Dim planeCnt As Integer : planeCnt = 0
+    Dim planeNames As String : planeNames = ""
+    Set swFtIter = swPart.FirstFeature()
+    Do While Not swFtIter Is Nothing
+        If swFtIter.GetTypeName2() = "RefPlane" Then
+            If planeNames <> "" Then planeNames = planeNames & " | "
+            planeNames = planeNames & swFtIter.Name
+            If planeCnt = skPlaneIdx Then Set swPlaneFt = swFtIter
+            planeCnt = planeCnt + 1
+        End If
+        Set swFtIter = swFtIter.GetNextFeature()
+    Loop
+
+    Dim bPlnSel As Boolean : bPlnSel = False
+    Dim sPlaneFound As String : sPlaneFound = "<none>"
+    If Not swPlaneFt Is Nothing Then
+        sPlaneFound = swPlaneFt.Name
+        bPlnSel = swPlaneFt.Select2(False, 0)
+    End If
+
     swModel.SketchManager.InsertSketch True
     Dim swSkAfter As SldWorks.Sketch
     Set swSkAfter = swModel.SketchManager.ActiveSketch
@@ -583,7 +605,9 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     MsgBox "DEBUG" & vbCr & _
            "bCalledEditPart: " & bCalledEditPart & vbCr & _
-           "bPlnSel (" & skPlaneName & "): " & bPlnSel & vbCr & _
+           "Planes in part: " & planeNames & vbCr & _
+           "Picked (idx " & skPlaneIdx & "): " & sPlaneFound & vbCr & _
+           "bPlnSel: " & bPlnSel & vbCr & _
            "Sketch open after InsertSketch: " & (Not swSkAfter Is Nothing) & vbCr & _
            "Master segs selected: " & dbgSelOK & " / 4" & vbCr & _
            "SketchUseEdge2 return: " & dbgUseEdge & vbCr & _

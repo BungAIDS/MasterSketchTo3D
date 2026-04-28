@@ -546,15 +546,15 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Set swActiveSk = swModel.SketchManager.ActiveSketch
     If Not swActiveSk Is Nothing Then swModel.SketchManager.InsertSketch True
 
-    swModel.Extension.SelectByID2 skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0
+    Dim bPlnSel As Boolean
+    bPlnSel = swModel.Extension.SelectByID2(skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0)
     swModel.SketchManager.InsertSketch True
+    Dim swSkAfter As SldWorks.Sketch
+    Set swSkAfter = swModel.SketchManager.ActiveSketch
 
-    ' ── E. Draw 4 lines (model-space coords) ─────────────────
-    '    pts() are sketch-local; CreateLine needs model space.
-    '    Apply swSk2Model (sketch->model) before calling it.
-    '    swAssy2Part is omitted – the virtual part has an
-    '    in-place mate at origin so its model space = assembly's.
+    ' ── E. Draw 4 lines ──────────────────────────────────────
     Dim s As Integer
+    Dim dbgLines As Integer : dbgLines = 0
     For s = 0 To 3
         Dim a1(2) As Double, a2(2) As Double
         a1(0) = pts(s * 6 + 0) : a1(1) = pts(s * 6 + 1) : a1(2) = pts(s * 6 + 2)
@@ -568,8 +568,17 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
         Dim d1 As Variant, d2 As Variant
         d1 = swMP1.ArrayData
         d2 = swMP2.ArrayData
-        swModel.SketchManager.CreateLine d1(0), d1(1), d1(2), d2(0), d2(1), d2(2)
+        Dim swNewLine As SldWorks.SketchSegment
+        Set swNewLine = swModel.SketchManager.CreateLine(d1(0), d1(1), d1(2), d2(0), d2(1), d2(2))
+        If Not swNewLine Is Nothing Then dbgLines = dbgLines + 1
     Next s
+
+    MsgBox "DEBUG" & vbCr & _
+           "bCalledEditPart: " & bCalledEditPart & vbCr & _
+           "bPlnSel (" & skPlaneName & "): " & bPlnSel & vbCr & _
+           "Sketch open after InsertSketch: " & (Not swSkAfter Is Nothing) & vbCr & _
+           "Lines created: " & dbgLines & " / 4" & vbCr & _
+           "pt0 coords: " & Format(d1(0)*1000,"0.00") & "," & Format(d1(1)*1000,"0.00") & "," & Format(d1(2)*1000,"0.00") & " mm"
 
     ' ── G. Close sketch ───────────────────────────────────────
     swModel.SketchManager.InsertSketch True

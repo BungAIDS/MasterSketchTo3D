@@ -543,11 +543,11 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     ' Close any auto-opened sketch so we can open on the right plane.
     Dim swActiveSk As SldWorks.Sketch
-    Set swActiveSk = swPart.SketchManager.ActiveSketch
-    If Not swActiveSk Is Nothing Then swPart.SketchManager.InsertSketch True
+    Set swActiveSk = swModel.SketchManager.ActiveSketch
+    If Not swActiveSk Is Nothing Then swModel.SketchManager.InsertSketch True
 
-    swPart.Extension.SelectByID2 skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0
-    swPart.SketchManager.InsertSketch True
+    swModel.Extension.SelectByID2 skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0
+    swModel.SketchManager.InsertSketch True
 
     ' ── E. Draw 4 lines (model-space coords) ─────────────────
     '    pts() are sketch-local; CreateLine needs model space.
@@ -583,7 +583,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
         Set swFt = swFt.GetNextFeature()
     Loop
 
-    swPart.ClearSelection2 True
+    swModel.ClearSelection2 True
     If Not swLastSkFt Is Nothing Then swLastSkFt.Select2 False, 0
 
     ' ── I. Add offset plane as Up To target (mark = 1) ───────

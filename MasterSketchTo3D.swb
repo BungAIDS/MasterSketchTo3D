@@ -568,11 +568,11 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
         Dim d1 As Variant, d2 As Variant
         d1 = swMP1.ArrayData
         d2 = swMP2.ArrayData
-        swPart.SketchManager.CreateLine d1(0), d1(1), d1(2), d2(0), d2(1), d2(2)
+        swModel.SketchManager.CreateLine d1(0), d1(1), d1(2), d2(0), d2(1), d2(2)
     Next s
 
     ' ── G. Close sketch ───────────────────────────────────────
-    swPart.SketchManager.InsertSketch True
+    swModel.SketchManager.InsertSketch True
 
     ' ── H. Select the sketch profile (mark = 0) ──────────────
     Dim swFt       As SldWorks.Feature
@@ -587,7 +587,8 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     If Not swLastSkFt Is Nothing Then swLastSkFt.Select2 False, 0
 
     ' ── I. Add offset plane as Up To target (mark = 1) ───────
-    swPart.Extension.SelectByID2 sPlaneName, "PLANE", _
+    '    The offset plane lives in the assembly, so select via swModel.
+    swModel.Extension.SelectByID2 sPlaneName, "PLANE", _
         0, 0, 0, True, 1, Nothing, 0
 
     ' ── J. Extrude Up To Surface ──────────────────────────────

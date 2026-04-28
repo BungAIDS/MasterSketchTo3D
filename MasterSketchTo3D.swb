@@ -555,33 +555,39 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Dim swSkAfter As SldWorks.Sketch
     Set swSkAfter = swModel.SketchManager.ActiveSketch
 
-    ' ── E. Draw 4 lines ──────────────────────────────────────
+    ' ── E. Convert Entities: parametrically link the 4 master ─
+    '    sketch segments into the new part sketch. Changes to the
+    '    master sketch propagate to the stiffener parts.
+    swModel.ClearSelection2 True
     Dim s As Integer
-    Dim dbgLines As Integer : dbgLines = 0
+    Dim dbgSelOK As Integer : dbgSelOK = 0
     For s = 0 To 3
-        Dim a1(2) As Double, a2(2) As Double
-        a1(0) = pts(s * 6 + 0) : a1(1) = pts(s * 6 + 1) : a1(2) = pts(s * 6 + 2)
-        a2(0) = pts(s * 6 + 3) : a2(1) = pts(s * 6 + 4) : a2(2) = pts(s * 6 + 5)
-        Dim swMP1 As SldWorks.MathPoint
-        Dim swMP2 As SldWorks.MathPoint
-        Set swMP1 = swMU.CreatePoint(a1)
-        Set swMP2 = swMU.CreatePoint(a2)
-        Set swMP1 = swMP1.MultiplyTransform(swSk2Model)
-        Set swMP2 = swMP2.MultiplyTransform(swSk2Model)
-        Dim d1 As Variant, d2 As Variant
-        d1 = swMP1.ArrayData
-        d2 = swMP2.ArrayData
-        Dim swNewLine As SldWorks.SketchSegment
-        Set swNewLine = swModel.SketchManager.CreateLine(d1(0), d1(1), d1(2), d2(0), d2(1), d2(2))
-        If Not swNewLine Is Nothing Then dbgLines = dbgLines + 1
+        Dim seg As SldWorks.SketchSegment
+        Set seg = segs(s)
+        If Not seg Is Nothing Then
+            If seg.Select2(s > 0, 0) Then dbgSelOK = dbgSelOK + 1
+        End If
     Next s
+
+    Dim dbgUseEdge As Long
+    dbgUseEdge = swModel.SketchManager.SketchUseEdge2(False)
+
+    Dim swSkActive As SldWorks.Sketch
+    Set swSkActive = swModel.SketchManager.ActiveSketch
+    Dim dbgSegCnt As Long : dbgSegCnt = 0
+    If Not swSkActive Is Nothing Then
+        Dim vNewSegs As Variant
+        vNewSegs = swSkActive.GetSketchSegments()
+        If Not IsEmpty(vNewSegs) Then dbgSegCnt = UBound(vNewSegs) + 1
+    End If
 
     MsgBox "DEBUG" & vbCr & _
            "bCalledEditPart: " & bCalledEditPart & vbCr & _
            "bPlnSel (" & skPlaneName & "): " & bPlnSel & vbCr & _
            "Sketch open after InsertSketch: " & (Not swSkAfter Is Nothing) & vbCr & _
-           "Lines created: " & dbgLines & " / 4" & vbCr & _
-           "pt0 coords: " & Format(d1(0)*1000,"0.00") & "," & Format(d1(1)*1000,"0.00") & "," & Format(d1(2)*1000,"0.00") & " mm"
+           "Master segs selected: " & dbgSelOK & " / 4" & vbCr & _
+           "SketchUseEdge2 return: " & dbgUseEdge & vbCr & _
+           "Segments now in sketch: " & dbgSegCnt
 
     ' ── G. Close sketch ───────────────────────────────────────
     swModel.SketchManager.InsertSketch True

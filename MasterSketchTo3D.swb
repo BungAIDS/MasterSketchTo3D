@@ -548,55 +548,19 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     swPart.Extension.SelectByID2 skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0
     swPart.SketchManager.InsertSketch True
 
-    ' ── E. Convert Entities from assembly sketch (primary) ───
-    '    Select all 4 SketchSegment objects then project them
-    '    into the virtual-part sketch via SketchUseEdge3.
-    Dim usedConvert As Boolean : usedConvert = False
-    If Not segs(0) Is Nothing Then
-        Dim allSel As Boolean : allSel = True
-        Dim bSegSel As Boolean
-        Dim s As Integer
-        For s = 0 To 3
-            Dim seg As SldWorks.SketchSegment
-            Set seg = segs(s)
-            bSegSel = seg.Select2(s > 0, 0)
-            If Not bSegSel Then
-                allSel = False : Exit For
-            End If
-        Next s
-        If allSel Then
-            usedConvert = swPart.SketchManager.SketchUseEdge3(False, False)
-        End If
-        If Not usedConvert Then swPart.ClearSelection2 True
-    End If
-
-    ' ── F. Fallback: draw 4 lines from stored coordinates ────
-    '    Uses full 3D coords so the sketch plane projection is
-    '    correct regardless of which plane the sketch is on.
-    If Not usedConvert Then
-        For s = 0 To 3
-            Dim a1(2) As Double, a2(2) As Double
-            a1(0) = pts(s * 6 + 0) : a1(1) = pts(s * 6 + 1) : a1(2) = pts(s * 6 + 2)
-            a2(0) = pts(s * 6 + 3) : a2(1) = pts(s * 6 + 4) : a2(2) = pts(s * 6 + 5)
-
-            Dim swMP1 As SldWorks.MathPoint
-            Dim swMP2 As SldWorks.MathPoint
-            Set swMP1 = swMU.CreatePoint(a1)
-            Set swMP2 = swMU.CreatePoint(a2)
-
-            Set swMP1 = swMP1.MultiplyTransform(swSk2Model)
-            Set swMP2 = swMP2.MultiplyTransform(swSk2Model)
-
-            Set swMP1 = swMP1.MultiplyTransform(swAssy2Part)
-            Set swMP2 = swMP2.MultiplyTransform(swAssy2Part)
-
-            Dim d1 As Variant, d2 As Variant
-            d1 = swMP1.ArrayData
-            d2 = swMP2.ArrayData
-
-            swPart.SketchManager.CreateLine d1(0), d1(1), d1(2), d2(0), d2(1), d2(2)
-        Next s
-    End If
+    ' ── E. Draw 4 lines from sketch-local coordinates ────────
+    '    The virtual part sits at the assembly origin with an
+    '    in-place mate, so its sketch plane coordinate system
+    '    is identical to the assembly sketch's local system.
+    '    Use the stored sketch-local pts directly; no transform
+    '    chain needed.  SketchUseEdge3 is skipped – it silently
+    '    produces nothing for virtual parts in this context.
+    Dim s As Integer
+    For s = 0 To 3
+        swPart.SketchManager.CreateLine _
+            pts(s * 6 + 0), pts(s * 6 + 1), pts(s * 6 + 2), _
+            pts(s * 6 + 3), pts(s * 6 + 4), pts(s * 6 + 5)
+    Next s
 
     ' ── G. Close sketch ───────────────────────────────────────
     swPart.SketchManager.InsertSketch True

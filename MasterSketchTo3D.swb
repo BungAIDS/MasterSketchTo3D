@@ -490,18 +490,28 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── B. Get the virtual part model doc ────────────────────
-    '    Some SW versions auto-enter edit mode after
-    '    InsertNewVirtualPart (ActiveDoc becomes the part).
-    '    If not, GetModelDoc2 gives us the reference directly,
-    '    avoiding version-specific Select/EditPart API calls.
+    ' ── B. Enter edit-component mode ─────────────────────────
+    '    Try Select2 (no SelectData arg) + EditPart (void, no
+    '    args) – both exist in every SW version.  If ActiveDoc
+    '    still hasn't switched to the part, fall back to
+    '    GetModelDoc2 so at least the reference is valid.
     Dim bInEditMode As Boolean : bInEditMode = False
     Dim swPart As SldWorks.ModelDoc2
     Set swPart = swApp.ActiveDoc
     If (Not swPart Is Nothing) And Not (swPart Is swModel) Then
         bInEditMode = True
     Else
-        Set swPart = swComp.GetModelDoc2()
+        swModel.ClearSelection2 True
+        Dim bCompSel As Boolean
+        bCompSel = swComp.Select2(False, 0)
+        If bCompSel Then
+            swAssy.EditPart
+            Set swPart = swApp.ActiveDoc
+            If (Not swPart Is Nothing) And Not (swPart Is swModel) Then
+                bInEditMode = True
+            End If
+        End If
+        If Not bInEditMode Then Set swPart = swComp.GetModelDoc2()
     End If
     If swPart Is Nothing Then Exit Function
 

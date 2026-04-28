@@ -546,8 +546,11 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Set swActiveSk = swModel.SketchManager.ActiveSketch
     If Not swActiveSk Is Nothing Then swModel.SketchManager.InsertSketch True
 
+    ' Plane is in the component (named "Front/Top/Right Plane" there);
+    ' select via swPart.Extension since the assembly proxy doesn't expose
+    ' the component planes by short name.
     Dim bPlnSel As Boolean
-    bPlnSel = swModel.Extension.SelectByID2(skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    bPlnSel = swPart.Extension.SelectByID2(skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0)
     swModel.SketchManager.InsertSketch True
     Dim swSkAfter As SldWorks.Sketch
     Set swSkAfter = swModel.SketchManager.ActiveSketch

@@ -490,30 +490,31 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     If swComp Is Nothing Then Exit Function
 
-    ' ── B. Enter edit-component mode ─────────────────────────
-    '    Try Select2 (no SelectData arg) + EditPart (void, no
-    '    args) – both exist in every SW version.  If ActiveDoc
-    '    still hasn't switched to the part, fall back to
-    '    GetModelDoc2 so at least the reference is valid.
-    Dim bInEditMode As Boolean : bInEditMode = False
+    ' ── B. Enter edit-component mode, get part model doc ────────
+    '    Select2+EditPart (void) work on all SW versions.
+    '    We always use GetModelDoc2 for swPart so sketch/feature
+    '    calls target the component, not the assembly.
+    '    bCalledEditPart tracks whether we need EditAssembly later
+    '    regardless of what ActiveDoc returns.
+    Dim bCalledEditPart As Boolean : bCalledEditPart = False
     Dim swPart As SldWorks.ModelDoc2
     Set swPart = swApp.ActiveDoc
     If (Not swPart Is Nothing) And Not (swPart Is swModel) Then
-        bInEditMode = True
+        bCalledEditPart = True          ' auto-entered by InsertNewVirtualPart
     Else
         swModel.ClearSelection2 True
         Dim bCompSel As Boolean
         bCompSel = swComp.Select2(False, 0)
         If bCompSel Then
             swAssy.EditPart
-            Set swPart = swApp.ActiveDoc
-            If (Not swPart Is Nothing) And Not (swPart Is swModel) Then
-                bInEditMode = True
-            End If
+            bCalledEditPart = True
         End If
-        If Not bInEditMode Then Set swPart = swComp.GetModelDoc2()
     End If
-    If swPart Is Nothing Then Exit Function
+    Set swPart = swComp.GetModelDoc2()  ' always use component's own model doc
+    If swPart Is Nothing Then
+        If bCalledEditPart Then swAssy.EditAssembly
+        Exit Function
+    End If
 
     ' ── C. Assembly -> part transform ────────────────────────
     Dim swAssy2Part As SldWorks.MathTransform
@@ -548,18 +549,26 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     swPart.Extension.SelectByID2 skPlaneName, "PLANE", 0, 0, 0, False, 0, Nothing, 0
     swPart.SketchManager.InsertSketch True
 
-    ' ── E. Draw 4 lines from sketch-local coordinates ────────
-    '    The virtual part sits at the assembly origin with an
-    '    in-place mate, so its sketch plane coordinate system
-    '    is identical to the assembly sketch's local system.
-    '    Use the stored sketch-local pts directly; no transform
-    '    chain needed.  SketchUseEdge3 is skipped – it silently
-    '    produces nothing for virtual parts in this context.
+    ' ── E. Draw 4 lines (model-space coords) ─────────────────
+    '    pts() are sketch-local; CreateLine needs model space.
+    '    Apply swSk2Model (sketch->model) before calling it.
+    '    swAssy2Part is omitted – the virtual part has an
+    '    in-place mate at origin so its model space = assembly's.
     Dim s As Integer
     For s = 0 To 3
-        swPart.SketchManager.CreateLine _
-            pts(s * 6 + 0), pts(s * 6 + 1), pts(s * 6 + 2), _
-            pts(s * 6 + 3), pts(s * 6 + 4), pts(s * 6 + 5)
+        Dim a1(2) As Double, a2(2) As Double
+        a1(0) = pts(s * 6 + 0) : a1(1) = pts(s * 6 + 1) : a1(2) = pts(s * 6 + 2)
+        a2(0) = pts(s * 6 + 3) : a2(1) = pts(s * 6 + 4) : a2(2) = pts(s * 6 + 5)
+        Dim swMP1 As SldWorks.MathPoint
+        Dim swMP2 As SldWorks.MathPoint
+        Set swMP1 = swMU.CreatePoint(a1)
+        Set swMP2 = swMU.CreatePoint(a2)
+        Set swMP1 = swMP1.MultiplyTransform(swSk2Model)
+        Set swMP2 = swMP2.MultiplyTransform(swSk2Model)
+        Dim d1 As Variant, d2 As Variant
+        d1 = swMP1.ArrayData
+        d2 = swMP2.ArrayData
+        swPart.SketchManager.CreateLine d1(0), d1(1), d1(2), d2(0), d2(1), d2(2)
     Next s
 
     ' ── G. Close sketch ───────────────────────────────────────
@@ -595,8 +604,8 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     swPart.SelectionManager.EnableContourSelection = False
 
-    ' ── K. Exit edit mode if entered, rename ─────────────────
-    If bInEditMode Then swAssy.EditAssembly
+    ' ── K. Exit edit mode, rename ─────────────────────────────
+    If bCalledEditPart Then swAssy.EditAssembly
     swComp.Name2 = sName
 
     BuildStiffener = (Not swExtrude Is Nothing)

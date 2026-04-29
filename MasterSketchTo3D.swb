@@ -634,41 +634,30 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
         If Not IsEmpty(vNewSegs) Then dbgSegCnt = UBound(vNewSegs) + 1
     End If
 
+    MsgBox "DEBUG" & vbCr & _
+           "bCalledEditPart: " & bCalledEditPart & vbCr & _
+           "QualName: " & sQualName & vbCr & _
+           "bPlnSel: " & bPlnSel & vbCr & _
+           "Sketch open (part): " & (Not swSkAfterPart Is Nothing) & vbCr & _
+           "Sketch open (model): " & (Not swSkAfterModel Is Nothing) & vbCr & _
+           "Master segs selected: " & dbgSelOK & " / 4" & vbCr & _
+           "SketchUseEdge2 return: " & dbgUseEdge & vbCr & _
+           "Segments now in sketch: " & dbgSegCnt
+
     ' ── G. Close sketch ───────────────────────────────────────
     swModel.SketchManager.InsertSketch True
 
-    ' ── G2. Capture our converted-entities sketch (Sketch2) and
-    '    delete the empty auto-opened Sketch1 left behind by
-    '    InsertNewVirtualPart. Identify by segment count.
-    Dim swStiffSk As SldWorks.Feature
-    Dim swEmptySk As SldWorks.Feature
-    Dim swFtScan  As SldWorks.Feature
-    Set swFtScan = swPart.FirstFeature()
-    Do While Not swFtScan Is Nothing
-        If swFtScan.GetTypeName2() = "ProfileFeature" Then
-            Dim swSkObj As SldWorks.Sketch
-            Set swSkObj = swFtScan.GetSpecificFeature2()
-            Dim vChk As Variant : vChk = swSkObj.GetSketchSegments()
-            Dim nChk As Long : nChk = 0
-            If Not IsEmpty(vChk) Then nChk = UBound(vChk) + 1
-            If nChk = 0 Then
-                Set swEmptySk = swFtScan
-            Else
-                Set swStiffSk = swFtScan
-            End If
-        End If
-        Set swFtScan = swFtScan.GetNextFeature()
+    ' ── H. Select the sketch profile (mark = 0) ──────────────
+    Dim swFt       As SldWorks.Feature
+    Dim swLastSkFt As SldWorks.Feature
+    Set swFt = swPart.FirstFeature()
+    Do While Not swFt Is Nothing
+        If swFt.GetTypeName2() = "ProfileFeature" Then Set swLastSkFt = swFt
+        Set swFt = swFt.GetNextFeature()
     Loop
 
-    If Not swEmptySk Is Nothing Then
-        swModel.ClearSelection2 True
-        swEmptySk.Select2 False, 0
-        swPart.EditDelete
-    End If
-
-    ' ── H. Select the converted-entities sketch (mark = 0) ───
     swModel.ClearSelection2 True
-    If Not swStiffSk Is Nothing Then swStiffSk.Select2 False, 0
+    If Not swLastSkFt Is Nothing Then swLastSkFt.Select2 False, 0
 
     ' ── I. Add offset plane as Up To target (mark = 1) ───────
     '    The offset plane lives in the assembly, so select via swModel.

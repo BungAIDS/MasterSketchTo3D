@@ -216,20 +216,46 @@ Sub CreateStiffeners()
         swApp.RunMacro2 sExtMacro, "Custom_Properties_V21", _
                         "Main_LinkOnly_Smart", 0, lErr   ' 0 = swRunMacroDefault
 
-        ' Strip the "^AssemblyName" suffix that SW re-attached when
-        ' customProp materialized each virtual part.
-        vComps = swAssy.GetComponents(False)
-        If Not IsEmpty(vComps) Then
-            For ci = 0 To UBound(vComps)
-                Set swC = vComps(ci)
-                cName = swC.Name2
-                Dim sShort As String : sShort = cName
-                If InStr(sShort, "^") > 0 Then _
-                    sShort = Left(sShort, InStr(sShort, "^") - 1)
-                If selDict.Exists(sShort) And swC.Name2 <> sShort Then
-                    swC.Name2 = sShort
-                End If
-            Next ci
+        ' Save each virtual part to an external .SLDPRT in the assembly
+        ' folder.  This drops the "^AssemblyName" suffix permanently.
+        Dim sAssyPath As String, sAssyDir As String, p As Long
+        sAssyPath = swModel.GetPathName()
+        If Len(sAssyPath) > 0 Then
+            p = InStrRev(sAssyPath, "\")
+            If p > 0 Then sAssyDir = Left(sAssyPath, p)
+        End If
+
+        If Len(sAssyDir) > 0 Then
+            Dim nSaveFail As Integer : nSaveFail = 0
+            vComps = swAssy.GetComponents(False)
+            If Not IsEmpty(vComps) Then
+                For ci = 0 To UBound(vComps)
+                    Set swC = vComps(ci)
+                    cName = swC.Name2
+                    Dim sShort As String : sShort = cName
+                    If InStr(sShort, "^") > 0 Then _
+                        sShort = Left(sShort, InStr(sShort, "^") - 1)
+                    If selDict.Exists(sShort) Then
+                        Dim sFile As String
+                        sFile = sAssyDir & sShort & ".SLDPRT"
+                        On Error Resume Next
+                        Dim bMI As Boolean
+                        bMI = swC.MakeIndependent(sFile)
+                        If Err.Number <> 0 Or Not bMI Then nSaveFail = nSaveFail + 1
+                        Err.Clear
+                        On Error GoTo 0
+                    End If
+                Next ci
+            End If
+            If nSaveFail > 0 Then
+                MsgBox nSaveFail & " stiffener(s) could not be saved to an " & _
+                       "external file - they remain as virtual parts.", _
+                       vbExclamation
+            End If
+        Else
+            MsgBox "Save the assembly first so stiffeners can be saved as " & _
+                   "external parts.  They remain as virtual parts for now.", _
+                   vbInformation
         End If
     End If
 

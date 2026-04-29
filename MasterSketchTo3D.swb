@@ -585,22 +585,33 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
         Set swFtIter = swFtIter.GetNextFeature()
     Loop
 
-    Dim bPlnSel As Boolean : bPlnSel = False
-    Dim sPlaneFound As String : sPlaneFound = "<none>"
-    If Not swPlaneFt Is Nothing Then
-        sPlaneFound = swPlaneFt.Name
-        swPart.ClearSelection2 True
-        bPlnSel = swPart.Extension.SelectByID2(sPlaneFound, "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    ' Build the fully-qualified plane path for assembly-context selection.
+    ' Format: "PlaneName@CompRef@AssemblyTitle" — this is what the SW
+    ' command processor needs when ActiveDoc is the assembly.
+    Dim sCompRef As String : sCompRef = swComp.Name2
+    Dim sAssyTitle As String : sAssyTitle = swModel.GetTitle()
+    If InStr(sAssyTitle, ".") > 0 Then
+        sAssyTitle = Left(sAssyTitle, InStr(sAssyTitle, ".") - 1)
     End If
 
-    swPart.SketchManager.InsertSketch True
+    Dim bPlnSel As Boolean : bPlnSel = False
+    Dim sPlaneFound As String : sPlaneFound = "<none>"
+    Dim sQualName As String : sQualName = "<none>"
+    If Not swPlaneFt Is Nothing Then
+        sPlaneFound = swPlaneFt.Name
+        sQualName = sPlaneFound & "@" & sCompRef & "@" & sAssyTitle
+        swModel.ClearSelection2 True
+        bPlnSel = swModel.Extension.SelectByID2(sQualName, "PLANE", 0, 0, 0, False, 0, Nothing, 0)
+    End If
+
+    swModel.SketchManager.InsertSketch True
     Dim swSkAfterPart  As SldWorks.Sketch
     Dim swSkAfterModel As SldWorks.Sketch
     Set swSkAfterPart  = swPart.SketchManager.ActiveSketch
     Set swSkAfterModel = swModel.SketchManager.ActiveSketch
 
     ' ── E. Convert Entities: parametrically link the 4 master ─
-    swPart.ClearSelection2 True
+    swModel.ClearSelection2 True
     Dim s As Integer
     Dim dbgSelOK As Integer : dbgSelOK = 0
     For s = 0 To 3
@@ -612,10 +623,10 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Next s
 
     Dim dbgUseEdge As Long
-    dbgUseEdge = swPart.SketchManager.SketchUseEdge2(False)
+    dbgUseEdge = swModel.SketchManager.SketchUseEdge2(False)
 
     Dim swSkActive As SldWorks.Sketch
-    Set swSkActive = swPart.SketchManager.ActiveSketch
+    Set swSkActive = swModel.SketchManager.ActiveSketch
     Dim dbgSegCnt As Long : dbgSegCnt = 0
     If Not swSkActive Is Nothing Then
         Dim vNewSegs As Variant
@@ -625,9 +636,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     MsgBox "DEBUG" & vbCr & _
            "bCalledEditPart: " & bCalledEditPart & vbCr & _
-           "Planes in part: " & planeNames & vbCr & _
-           "Picked (idx " & skPlaneIdx & "): " & sPlaneFound & vbCr & _
-           "rngX/Y/Z: " & Format(rngX*1000,"0.0") & " / " & Format(rngY*1000,"0.0") & " / " & Format(rngZ*1000,"0.0") & " mm" & vbCr & _
+           "QualName: " & sQualName & vbCr & _
            "bPlnSel: " & bPlnSel & vbCr & _
            "Sketch open (part): " & (Not swSkAfterPart Is Nothing) & vbCr & _
            "Sketch open (model): " & (Not swSkAfterModel Is Nothing) & vbCr & _
@@ -636,7 +645,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
            "Segments now in sketch: " & dbgSegCnt
 
     ' ── G. Close sketch ───────────────────────────────────────
-    swPart.SketchManager.InsertSketch True
+    swModel.SketchManager.InsertSketch True
 
     ' ── H. Select the sketch profile (mark = 0) ──────────────
     Dim swFt       As SldWorks.Feature

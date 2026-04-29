@@ -183,7 +183,7 @@ Sub CreateStiffeners()
     swApp.CommandInProgress = False
     swModel.EditRebuild3
 
-    ' ── 9. Select new stiffeners and run customProp macro ────
+    ' ── 9. Save virtuals as external parts, then run customProp ─
     If nFound > 0 Then
         Dim selDict As Object
         Set selDict = CreateObject("Scripting.Dictionary")
@@ -193,31 +193,9 @@ Sub CreateStiffeners()
             End If
         Next bi
 
-        swModel.ClearSelection2 True
-        Dim bAppend As Boolean : bAppend = False
-        vComps = swAssy.GetComponents(False)
-        If Not IsEmpty(vComps) Then
-            For ci = 0 To UBound(vComps)
-                Set swC = vComps(ci)
-                cName = swC.Name2
-                If InStr(cName, "^") > 0 Then _
-                    cName = Left(cName, InStr(cName, "^") - 1)
-                If selDict.Exists(cName) Then
-                    swC.Select4 bAppend, Nothing, False
-                    bAppend = True
-                End If
-            Next ci
-        End If
-
-        Dim sExtMacro As String
-        sExtMacro = "Z:\DAG\SOLIDWORKS MACRO\customProp - Copy 8-25-2025" & _
-                    "\Custom Properties V2.swp"
-        Dim lErr As Long
-        swApp.RunMacro2 sExtMacro, "Custom_Properties_V21", _
-                        "Main_LinkOnly_Smart", 0, lErr   ' 0 = swRunMacroDefault
-
-        ' Save each virtual part to an external .SLDPRT in the assembly
-        ' folder.  This drops the "^AssemblyName" suffix permanently.
+        ' --- Step 1: write each virtual stiffener out to disk so it
+        '     loses the "^AssemblyName" suffix BEFORE customProp reads
+        '     swPart.GetTitle (DESCRIPTION default text comes from there).
         Dim sAssyPath As String, sAssyDir As String, p As Long
         sAssyPath = swModel.GetPathName()
         If Len(sAssyPath) > 0 Then
@@ -225,8 +203,9 @@ Sub CreateStiffeners()
             If p > 0 Then sAssyDir = Left(sAssyPath, p)
         End If
 
-        If Len(sAssyDir) > 0 Then
-            Dim nSaveFail As Integer : nSaveFail = 0
+        Dim bCanSave As Boolean : bCanSave = (Len(sAssyDir) > 0)
+        Dim nSaveFail As Integer : nSaveFail = 0
+        If bCanSave Then
             vComps = swAssy.GetComponents(False)
             If Not IsEmpty(vComps) Then
                 For ci = 0 To UBound(vComps)
@@ -254,9 +233,35 @@ Sub CreateStiffeners()
             End If
         Else
             MsgBox "Save the assembly first so stiffeners can be saved as " & _
-                   "external parts.  They remain as virtual parts for now.", _
+                   "external parts.  Running customProp on virtual parts " & _
+                   "(names will keep the ^AssemblyName suffix).", _
                    vbInformation
         End If
+
+        ' --- Step 2: select all new stiffeners (now external) and run
+        '     customProp on them.
+        swModel.ClearSelection2 True
+        Dim bAppend As Boolean : bAppend = False
+        vComps = swAssy.GetComponents(False)
+        If Not IsEmpty(vComps) Then
+            For ci = 0 To UBound(vComps)
+                Set swC = vComps(ci)
+                cName = swC.Name2
+                If InStr(cName, "^") > 0 Then _
+                    cName = Left(cName, InStr(cName, "^") - 1)
+                If selDict.Exists(cName) Then
+                    swC.Select4 bAppend, Nothing, False
+                    bAppend = True
+                End If
+            Next ci
+        End If
+
+        Dim sExtMacro As String
+        sExtMacro = "Z:\DAG\SOLIDWORKS MACRO\customProp - Copy 8-25-2025" & _
+                    "\Custom Properties V2.swp"
+        Dim lErr As Long
+        swApp.RunMacro2 sExtMacro, "Custom_Properties_V21", _
+                        "Main_LinkOnly_Smart", 0, lErr   ' 0 = swRunMacroDefault
     End If
 
     LogMasterSketchTo3D nFound, nFound * 1

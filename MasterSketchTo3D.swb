@@ -215,6 +215,22 @@ Sub CreateStiffeners()
         Dim lErr As Long
         swApp.RunMacro2 sExtMacro, "Custom_Properties_V21", _
                         "Main_LinkOnly_Smart", 0, lErr   ' 0 = swRunMacroDefault
+
+        ' Strip the "^AssemblyName" suffix that SW re-attached when
+        ' customProp materialized each virtual part.
+        vComps = swAssy.GetComponents(False)
+        If Not IsEmpty(vComps) Then
+            For ci = 0 To UBound(vComps)
+                Set swC = vComps(ci)
+                cName = swC.Name2
+                Dim sShort As String : sShort = cName
+                If InStr(sShort, "^") > 0 Then _
+                    sShort = Left(sShort, InStr(sShort, "^") - 1)
+                If selDict.Exists(sShort) And swC.Name2 <> sShort Then
+                    swC.Name2 = sShort
+                End If
+            Next ci
+        End If
     End If
 
     LogMasterSketchTo3D nFound, nFound * 1

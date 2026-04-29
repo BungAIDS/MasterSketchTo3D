@@ -521,23 +521,42 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Set swAssy2Part = swComp.Transform2.Inverse()
 
     ' ── D. Determine which standard plane matches the sketch ─
-    '    Transform the sketch Z-normal into assembly model space,
-    '    then pick Front/Top/Right by the dominant axis.
-    Dim skNorm(2) As Double
-    skNorm(0) = 0# : skNorm(1) = 0# : skNorm(2) = 1#
-    Dim swNV As SldWorks.MathVector
-    Set swNV = swMU.CreateVector(skNorm)
-    Set swNV = swNV.MultiplyTransform(swSk2Model)
-    Dim normArr As Variant : normArr = swNV.ArrayData
-
-    ' Pick standard plane index by dominant normal axis.
-    '   0 = Front Plane (normal Z), 1 = Top Plane (normal Y), 2 = Right Plane (normal X)
+    '    Find the axis with the smallest range across the rectangle's
+    '    8 stored XYZ values (4 segments x 2 endpoints). The constant
+    '    axis = the sketch plane's normal direction.
+    '   0 = Front (Z normal), 1 = Top (Y normal), 2 = Right (X normal)
+    Dim minX As Double, maxX As Double
+    Dim minY As Double, maxY As Double
+    Dim minZ As Double, maxZ As Double
+    minX = pts(0) : maxX = pts(0)
+    minY = pts(1) : maxY = pts(1)
+    minZ = pts(2) : maxZ = pts(2)
+    Dim qPi As Integer
+    For qPi = 0 To 3
+        Dim qX1 As Double, qY1 As Double, qZ1 As Double
+        Dim qX2 As Double, qY2 As Double, qZ2 As Double
+        qX1 = pts(qPi * 6 + 0) : qY1 = pts(qPi * 6 + 1) : qZ1 = pts(qPi * 6 + 2)
+        qX2 = pts(qPi * 6 + 3) : qY2 = pts(qPi * 6 + 4) : qZ2 = pts(qPi * 6 + 5)
+        If qX1 < minX Then minX = qX1
+        If qX1 > maxX Then maxX = qX1
+        If qX2 < minX Then minX = qX2
+        If qX2 > maxX Then maxX = qX2
+        If qY1 < minY Then minY = qY1
+        If qY1 > maxY Then maxY = qY1
+        If qY2 < minY Then minY = qY2
+        If qY2 > maxY Then maxY = qY2
+        If qZ1 < minZ Then minZ = qZ1
+        If qZ1 > maxZ Then maxZ = qZ1
+        If qZ2 < minZ Then minZ = qZ2
+        If qZ2 > maxZ Then maxZ = qZ2
+    Next qPi
+    Dim rngX As Double : rngX = maxX - minX
+    Dim rngY As Double : rngY = maxY - minY
+    Dim rngZ As Double : rngZ = maxZ - minZ
     Dim skPlaneIdx As Integer
-    Dim absX As Double, absY As Double, absZ As Double
-    absX = Abs(normArr(0)) : absY = Abs(normArr(1)) : absZ = Abs(normArr(2))
-    If absZ >= absX And absZ >= absY Then
+    If rngZ <= rngX And rngZ <= rngY Then
         skPlaneIdx = 0
-    ElseIf absY >= absX Then
+    ElseIf rngY <= rngX Then
         skPlaneIdx = 1
     Else
         skPlaneIdx = 2
@@ -545,8 +564,8 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
 
     ' Close any auto-opened sketch so we can open on the right plane.
     Dim swActiveSk As SldWorks.Sketch
-    Set swActiveSk = swModel.SketchManager.ActiveSketch
-    If Not swActiveSk Is Nothing Then swModel.SketchManager.InsertSketch True
+    Set swActiveSk = swPart.SketchManager.ActiveSketch
+    If Not swActiveSk Is Nothing Then swPart.SketchManager.InsertSketch True
 
     ' Locate the plane by walking the part's feature tree (don't rely on
     ' a hard-coded "Right Plane" name — templates can rename them).
@@ -573,14 +592,14 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
         bPlnSel = swPlaneFt.Select2(False, 0)
     End If
 
-    swModel.SketchManager.InsertSketch True
-    Dim swSkAfter As SldWorks.Sketch
-    Set swSkAfter = swModel.SketchManager.ActiveSketch
+    swPart.SketchManager.InsertSketch True
+    Dim swSkAfterPart  As SldWorks.Sketch
+    Dim swSkAfterModel As SldWorks.Sketch
+    Set swSkAfterPart  = swPart.SketchManager.ActiveSketch
+    Set swSkAfterModel = swModel.SketchManager.ActiveSketch
 
     ' ── E. Convert Entities: parametrically link the 4 master ─
-    '    sketch segments into the new part sketch. Changes to the
-    '    master sketch propagate to the stiffener parts.
-    swModel.ClearSelection2 True
+    swPart.ClearSelection2 True
     Dim s As Integer
     Dim dbgSelOK As Integer : dbgSelOK = 0
     For s = 0 To 3
@@ -592,10 +611,10 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Next s
 
     Dim dbgUseEdge As Long
-    dbgUseEdge = swModel.SketchManager.SketchUseEdge2(False)
+    dbgUseEdge = swPart.SketchManager.SketchUseEdge2(False)
 
     Dim swSkActive As SldWorks.Sketch
-    Set swSkActive = swModel.SketchManager.ActiveSketch
+    Set swSkActive = swPart.SketchManager.ActiveSketch
     Dim dbgSegCnt As Long : dbgSegCnt = 0
     If Not swSkActive Is Nothing Then
         Dim vNewSegs As Variant
@@ -607,14 +626,16 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
            "bCalledEditPart: " & bCalledEditPart & vbCr & _
            "Planes in part: " & planeNames & vbCr & _
            "Picked (idx " & skPlaneIdx & "): " & sPlaneFound & vbCr & _
+           "rngX/Y/Z: " & Format(rngX*1000,"0.0") & " / " & Format(rngY*1000,"0.0") & " / " & Format(rngZ*1000,"0.0") & " mm" & vbCr & _
            "bPlnSel: " & bPlnSel & vbCr & _
-           "Sketch open after InsertSketch: " & (Not swSkAfter Is Nothing) & vbCr & _
+           "Sketch open (part): " & (Not swSkAfterPart Is Nothing) & vbCr & _
+           "Sketch open (model): " & (Not swSkAfterModel Is Nothing) & vbCr & _
            "Master segs selected: " & dbgSelOK & " / 4" & vbCr & _
            "SketchUseEdge2 return: " & dbgUseEdge & vbCr & _
            "Segments now in sketch: " & dbgSegCnt
 
     ' ── G. Close sketch ───────────────────────────────────────
-    swModel.SketchManager.InsertSketch True
+    swPart.SketchManager.InsertSketch True
 
     ' ── H. Select the sketch profile (mark = 0) ──────────────
     Dim swFt       As SldWorks.Feature

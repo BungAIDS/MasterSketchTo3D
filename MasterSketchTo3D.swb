@@ -206,6 +206,12 @@ Sub CreateStiffeners()
         Dim bCanSave As Boolean : bCanSave = (Len(sAssyDir) > 0)
         Dim nSaveFail As Integer : nSaveFail = 0
         If bCanSave Then
+            ' Commit the new virtual parts to disk first - MakeIndependent
+            ' fails on virtuals that haven't been saved at least once.
+            Dim svErr As Long, svWarn As Long
+            swModel.Save3 1, svErr, svWarn   ' 1 = swSaveAsOptions_Silent
+
+            Dim sFirstErr As String : sFirstErr = ""
             vComps = swAssy.GetComponents(False)
             If Not IsEmpty(vComps) Then
                 For ci = 0 To UBound(vComps)
@@ -217,19 +223,28 @@ Sub CreateStiffeners()
                     If selDict.Exists(sShort) Then
                         Dim sFile As String
                         sFile = sAssyDir & sShort & ".SLDPRT"
+                        Dim eNum As Long, eDesc As String
+                        Dim bMI As Boolean : bMI = False
                         On Error Resume Next
-                        Dim bMI As Boolean
                         bMI = swC.MakeIndependent(sFile)
-                        If Err.Number <> 0 Or Not bMI Then nSaveFail = nSaveFail + 1
+                        eNum = Err.Number : eDesc = Err.Description
                         Err.Clear
                         On Error GoTo 0
+                        If eNum <> 0 Or Not bMI Then
+                            nSaveFail = nSaveFail + 1
+                            If Len(sFirstErr) = 0 Then
+                                sFirstErr = sShort & " -> " & sFile & vbCr & _
+                                            "Err " & eNum & ": " & eDesc & vbCr & _
+                                            "Returned: " & bMI
+                            End If
+                        End If
                     End If
                 Next ci
             End If
             If nSaveFail > 0 Then
                 MsgBox nSaveFail & " stiffener(s) could not be saved to an " & _
-                       "external file - they remain as virtual parts.", _
-                       vbExclamation
+                       "external file - they remain as virtual parts." & vbCr & _
+                       vbCr & "First failure:" & vbCr & sFirstErr, vbExclamation
             End If
         Else
             MsgBox "Save the assembly first so stiffeners can be saved as " & _

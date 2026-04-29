@@ -785,6 +785,11 @@ Private Sub LogMasterSketchTo3D(ByVal nComponents As Long, _
         xlWs.Cells(1, 2).Formula = "=COUNTA(A" & DATA_START & ":A1048576)"
         xlWs.Cells(1, 2).Font.Bold = True
 
+        xlWs.Cells(2, 1).Value = "Total Time Saved (min)"
+        xlWs.Cells(2, 1).Font.Bold = True
+        xlWs.Cells(2, 2).Formula = "=SUM(E" & DATA_START & ":E1048576)"
+        xlWs.Cells(2, 2).Font.Bold = True
+
         For c = 1 To UBound(hdrs)
             xlWs.Cells(HEADER_ROW, c).Value = hdrs(c)
             xlWs.Cells(HEADER_ROW, c).Font.Bold = True
@@ -815,6 +820,7 @@ Private Sub LogMasterSketchTo3D(ByVal nComponents As Long, _
     xlWs.Cells(r, 5).Value = minutesSaved
 
     xlWs.Cells(1, 2).Formula = "=COUNTA(A" & DATA_START & ":A1048576)"
+    xlWs.Cells(2, 2).Formula = "=SUM(E" & DATA_START & ":E1048576)"
     xlWs.Range(xlWs.Cells(1, 1), xlWs.Cells(r, UBound(hdrs))).EntireColumn.AutoFit
 
     If bNew Then

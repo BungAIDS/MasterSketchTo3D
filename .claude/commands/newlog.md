@@ -14,10 +14,10 @@ Generate a complete, ready-to-paste VBA subroutine that:
 - Creates the log directory if it doesn't exist (late-bound FSO)
 - Opens Excel late-bound (`CreateObject("Excel.Application")`)
 - Handles a locked/read-only .xlsx by falling through to a `GoTo Overflow` CSV fallback
-- On new file: names the sheet, writes the bold summary row (`"Total Runs"` in A1, `=COUNTA(A4:A1048576)` formula in B1), writes bold column headers in row 3 (Date, Time, User, then the custom columns)
+- On new file: names the sheet, writes bold summary rows in rows 1–N before the headers: always `"Total Runs"` in A1 with `=COUNTA(A4:A1048576)` in B1; for any numeric custom column that represents a running total (time saved, count, cost, etc.) add an additional bold summary row (e.g. `"Total Time Saved (min)"` in A2, `=SUM(ColLetter4:ColLetter1048576)` in B2) — one row per totalled column; then writes bold column headers in row 3 (Date, Time, User, then the custom columns)
 - On existing file: finds the last used row with `End(-4162)`, backfills any missing headers
 - Writes the data row: `Format(Now,"YYYY-MM-DD")`, `Format(Now,"HH:MM:SS")`, `Environ("USERNAME")`, then the custom values
-- After writing: re-asserts `=COUNTA(A4:A1048576)` in B1 (upgrades any old file that had a hardcoded number), AutoFits all used columns
+- After writing: re-asserts all summary formulas in column B rows 1–N (upgrades any old file that had hardcoded numbers), AutoFits all used columns
 - Saves (`.Save` if file existed, `.SaveAs logXlsx, 51` if new), closes workbook, quits Excel, cleans up all object references
 - In the `Overflow:` section: creates the CSV with a header line if it doesn't exist, then appends a comma-delimited row
 

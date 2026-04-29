@@ -183,6 +183,8 @@ Sub CreateStiffeners()
     swApp.CommandInProgress = False
     swModel.EditRebuild3
 
+    LogMasterSketchTo3D nFound, nFound * 1
+
     If failNames = "" Then
         MsgBox "Done!  " & nFound & " stiffener(s) created.", vbInformation
     Else
@@ -731,3 +733,124 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     BuildStiffener = (Not swExtrude Is Nothing)
 
 End Function
+
+'═══════════════════════════════════════════════════════════════════════════
+'  LogMasterSketchTo3D - append one row to the macro run log
+'═══════════════════════════════════════════════════════════════════════════
+Private Sub LogMasterSketchTo3D(ByVal nComponents As Long, _
+                                ByVal minutesSaved As Double)
+
+    Const LOG_DIR      As String = "Z:\DAG\SOLIDWORKS MACRO\Master Sketch to 3D\"
+    Const LOG_XLSX     As String = "MasterSketchTo3D_Log.xlsx"
+    Const LOG_OVERFLOW As String = "MasterSketchTo3D_Log.csv"
+    Const HEADER_ROW   As Long = 3
+    Const DATA_START   As Long = 4
+
+    Dim logXlsx As String : logXlsx = LOG_DIR & LOG_XLSX
+    Dim logCsv  As String : logCsv  = LOG_DIR & LOG_OVERFLOW
+
+    Dim hdrs(1 To 5) As String
+    hdrs(1) = "Date"
+    hdrs(2) = "Time"
+    hdrs(3) = "User"
+    hdrs(4) = "Components Processed"
+    hdrs(5) = "Time Saved (min)"
+
+    ' ── Ensure log folder exists ────────────────────────────────────────
+    Dim oFSO As Object
+    On Error Resume Next
+    Set oFSO = CreateObject("Scripting.FileSystemObject")
+    If Not oFSO Is Nothing Then
+        If Not oFSO.FolderExists(LOG_DIR) Then oFSO.CreateFolder LOG_DIR
+    End If
+    Set oFSO = Nothing
+    On Error GoTo 0
+
+    Dim xlApp As Object, xlWb As Object, xlWs As Object
+    Dim bNew  As Boolean : bNew = (Dir(logXlsx) = "")
+    Dim lastRow As Long, c As Long, r As Long
+
+    On Error GoTo Overflow
+    Set xlApp = CreateObject("Excel.Application")
+    xlApp.Visible = False
+    xlApp.DisplayAlerts = False
+
+    If bNew Then
+        Set xlWb = xlApp.Workbooks.Add
+        Set xlWs = xlWb.Worksheets(1)
+        xlWs.Name = "Log"
+
+        xlWs.Cells(1, 1).Value = "Total Runs"
+        xlWs.Cells(1, 1).Font.Bold = True
+        xlWs.Cells(1, 2).Formula = "=COUNTA(A" & DATA_START & ":A1048576)"
+        xlWs.Cells(1, 2).Font.Bold = True
+
+        For c = 1 To UBound(hdrs)
+            xlWs.Cells(HEADER_ROW, c).Value = hdrs(c)
+            xlWs.Cells(HEADER_ROW, c).Font.Bold = True
+        Next c
+
+        lastRow = HEADER_ROW
+    Else
+        Set xlWb = xlApp.Workbooks.Open(logXlsx)
+        Set xlWs = xlWb.Worksheets(1)
+
+        For c = 1 To UBound(hdrs)
+            If Trim(CStr(xlWs.Cells(HEADER_ROW, c).Value)) = "" Then
+                xlWs.Cells(HEADER_ROW, c).Value = hdrs(c)
+                xlWs.Cells(HEADER_ROW, c).Font.Bold = True
+            End If
+        Next c
+
+        lastRow = xlWs.Cells(xlWs.Rows.Count, 1).End(-4162).Row
+        If lastRow < HEADER_ROW Then lastRow = HEADER_ROW
+    End If
+
+    r = lastRow + 1
+    If r < DATA_START Then r = DATA_START
+    xlWs.Cells(r, 1).Value = Format(Now, "YYYY-MM-DD")
+    xlWs.Cells(r, 2).Value = Format(Now, "HH:MM:SS")
+    xlWs.Cells(r, 3).Value = Environ("USERNAME")
+    xlWs.Cells(r, 4).Value = nComponents
+    xlWs.Cells(r, 5).Value = minutesSaved
+
+    xlWs.Cells(1, 2).Formula = "=COUNTA(A" & DATA_START & ":A1048576)"
+    xlWs.Range(xlWs.Cells(1, 1), xlWs.Cells(r, UBound(hdrs))).EntireColumn.AutoFit
+
+    If bNew Then
+        xlWb.SaveAs logXlsx, 51
+    Else
+        xlWb.Save
+    End If
+
+    xlWb.Close False
+    xlApp.Quit
+    Set xlWs = Nothing
+    Set xlWb = Nothing
+    Set xlApp = Nothing
+    Exit Sub
+
+Overflow:
+    On Error Resume Next
+    If Not xlWb  Is Nothing Then xlWb.Close False
+    If Not xlApp Is Nothing Then xlApp.Quit
+    Set xlWs  = Nothing
+    Set xlWb  = Nothing
+    Set xlApp = Nothing
+    On Error GoTo 0
+
+    Dim iFile   As Integer : iFile = FreeFile
+    Dim bCsvNew As Boolean : bCsvNew = (Dir(logCsv) = "")
+    On Error Resume Next
+    Open logCsv For Append As #iFile
+    If bCsvNew Then
+        Print #iFile, "Date,Time,User,Components Processed,Time Saved (min)"
+    End If
+    Print #iFile, Format(Now, "YYYY-MM-DD") & "," & _
+                  Format(Now, "HH:MM:SS")   & "," & _
+                  Environ("USERNAME")       & "," & _
+                  nComponents               & "," & _
+                  minutesSaved
+    Close #iFile
+    On Error GoTo 0
+End Sub

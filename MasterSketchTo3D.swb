@@ -7,7 +7,7 @@
 ' USAGE:
 '   1. Click the assembly sketch in the Feature Manager tree.
 '   2. Run this macro (Tools > Macro > Run).
-'   3. Enter stiffener thickness in inches when prompted.
+'   3. Enter stiffener width in inches when prompted.
 '
 ' Parts are named STIFF VERT #, STIFF HORZ #, or STIFF DIAG #
 ' based on the orientation of each rectangle's long axis.
@@ -61,9 +61,9 @@ Sub CreateStiffeners()
         MsgBox "Selected feature is not a sketch.", vbExclamation : Exit Sub
     End If
 
-    ' ── 2. Prompt for thickness ───────────────────────────────
+    ' ── 2. Prompt for width ───────────────────────────────────
     Dim sIn As String
-    sIn = InputBox("Enter stiffener thickness (inches):", "Stiffener Thickness", "0.25")
+    sIn = InputBox("Enter stiffener width (inches):", "Stiffener Width", "0.25")
     If sIn = "" Then Exit Sub
 
     Dim dIn As Double

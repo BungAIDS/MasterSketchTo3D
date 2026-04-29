@@ -107,11 +107,41 @@ Sub CreateStiffeners()
     End If
 
     ' ── 7. Assign names by orientation ───────────────────────
+    '    Scan existing assembly components first so numbering
+    '    continues from the highest existing STIFF * number.
     Dim contNames() As String
     ReDim contNames(0 To nFound - 1) As String
 
     Dim nV As Integer, nH As Integer, nD As Integer
     nV = 1 : nH = 1 : nD = 1
+    Dim vComps As Variant
+    vComps = swAssy.GetComponents(False)
+    If Not IsEmpty(vComps) Then
+        Dim ci As Integer
+        For ci = 0 To UBound(vComps)
+            Dim swC As SldWorks.Component2
+            Set swC = vComps(ci)
+            Dim cName As String : cName = swC.Name2
+            If InStr(cName, "^") > 0 Then cName = Left(cName, InStr(cName, "^") - 1)
+            Dim sNum As String
+            If Left(cName, 11) = "STIFF VERT " Then
+                sNum = Mid(cName, 12)
+                If IsNumeric(sNum) Then
+                    If CInt(sNum) >= nV Then nV = CInt(sNum) + 1
+                End If
+            ElseIf Left(cName, 11) = "STIFF HORZ " Then
+                sNum = Mid(cName, 12)
+                If IsNumeric(sNum) Then
+                    If CInt(sNum) >= nH Then nH = CInt(sNum) + 1
+                End If
+            ElseIf Left(cName, 11) = "STIFF DIAG " Then
+                sNum = Mid(cName, 12)
+                If IsNumeric(sNum) Then
+                    If CInt(sNum) >= nD Then nD = CInt(sNum) + 1
+                End If
+            End If
+        Next ci
+    End If
 
     Dim bi As Integer
     For bi = 0 To nFound - 1

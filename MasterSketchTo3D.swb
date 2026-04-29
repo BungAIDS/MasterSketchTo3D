@@ -445,11 +445,40 @@ Private Function CreateOffsetPlane(swModel  As SldWorks.ModelDoc2, _
     Set swNewFeat = swModel.FeatureManager.InsertRefPlane(8, dOffset, 0, 0, 0, 0)
     If swNewFeat Is Nothing Then Exit Function
 
-    swNewFeat.Name = "STIFFENER OFFSET PLANE"
-    sPlaneName = "STIFFENER OFFSET PLANE"
+    ' Pick a unique name so re-runs don't collide. "STIFFENER OFFSET PLANE",
+    ' then "STIFFENER OFFSET PLANE 2", "STIFFENER OFFSET PLANE 3", ...
+    Dim sBase As String : sBase = "STIFFENER OFFSET PLANE"
+    Dim sCandidate As String : sCandidate = sBase
+    Dim n As Integer : n = 2
+    Do While PlaneExists(swModel, sCandidate, swNewFeat)
+        sCandidate = sBase & " " & n
+        n = n + 1
+    Loop
+    swNewFeat.Name = sCandidate
+    sPlaneName = sCandidate
 
     swModel.ClearSelection2 True
     CreateOffsetPlane = True
+End Function
+
+
+' Returns True if a feature named sName already exists in swModel,
+' excluding swExclude (the freshly-created plane we want to rename).
+Private Function PlaneExists(swModel As SldWorks.ModelDoc2, _
+                              sName As String, _
+                              swExclude As SldWorks.Feature) As Boolean
+    PlaneExists = False
+    Dim swFt As SldWorks.Feature
+    Set swFt = swModel.FirstFeature()
+    Do While Not swFt Is Nothing
+        If Not (swFt Is swExclude) Then
+            If swFt.Name = sName Then
+                PlaneExists = True
+                Exit Function
+            End If
+        End If
+        Set swFt = swFt.GetNextFeature()
+    Loop
 End Function
 
 

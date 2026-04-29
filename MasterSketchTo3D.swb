@@ -155,6 +155,8 @@ Sub CreateStiffeners()
     Next bi
 
     ' ── 8. Build stiffeners ───────────────────────────────────
+    swApp.CommandInProgress = True
+    swModel.FeatureManager.EnableFeatureTree = False
     Dim failNames As String : failNames = ""
     For bi = 0 To nFound - 1
         Dim pts(0 To 23) As Double
@@ -177,6 +179,8 @@ Sub CreateStiffeners()
         End If
     Next bi
 
+    swModel.FeatureManager.EnableFeatureTree = True
+    swApp.CommandInProgress = False
     swModel.EditRebuild3
 
     If failNames = "" Then
@@ -664,44 +668,17 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     End If
 
     swModel.SketchManager.InsertSketch True
-    Dim swSkAfterPart  As SldWorks.Sketch
-    Dim swSkAfterModel As SldWorks.Sketch
-    Set swSkAfterPart  = swPart.SketchManager.ActiveSketch
-    Set swSkAfterModel = swModel.SketchManager.ActiveSketch
 
     ' ── E. Convert Entities: parametrically link the 4 master ─
     swModel.ClearSelection2 True
     Dim s As Integer
-    Dim dbgSelOK As Integer : dbgSelOK = 0
     For s = 0 To 3
         Dim seg As SldWorks.SketchSegment
         Set seg = segs(s)
-        If Not seg Is Nothing Then
-            If seg.Select2(s > 0, 0) Then dbgSelOK = dbgSelOK + 1
-        End If
+        If Not seg Is Nothing Then seg.Select2 (s > 0), 0
     Next s
 
-    Dim dbgUseEdge As Long
-    dbgUseEdge = swModel.SketchManager.SketchUseEdge2(False)
-
-    Dim swSkActive As SldWorks.Sketch
-    Set swSkActive = swModel.SketchManager.ActiveSketch
-    Dim dbgSegCnt As Long : dbgSegCnt = 0
-    If Not swSkActive Is Nothing Then
-        Dim vNewSegs As Variant
-        vNewSegs = swSkActive.GetSketchSegments()
-        If Not IsEmpty(vNewSegs) Then dbgSegCnt = UBound(vNewSegs) + 1
-    End If
-
-    MsgBox "DEBUG" & vbCr & _
-           "bCalledEditPart: " & bCalledEditPart & vbCr & _
-           "QualName: " & sQualName & vbCr & _
-           "bPlnSel: " & bPlnSel & vbCr & _
-           "Sketch open (part): " & (Not swSkAfterPart Is Nothing) & vbCr & _
-           "Sketch open (model): " & (Not swSkAfterModel Is Nothing) & vbCr & _
-           "Master segs selected: " & dbgSelOK & " / 4" & vbCr & _
-           "SketchUseEdge2 return: " & dbgUseEdge & vbCr & _
-           "Segments now in sketch: " & dbgSegCnt
+    swModel.SketchManager.SketchUseEdge2 False
 
     ' ── G. Close sketch ───────────────────────────────────────
     swModel.SketchManager.InsertSketch True

@@ -589,7 +589,8 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Dim sPlaneFound As String : sPlaneFound = "<none>"
     If Not swPlaneFt Is Nothing Then
         sPlaneFound = swPlaneFt.Name
-        bPlnSel = swPlaneFt.Select2(False, 0)
+        swPart.ClearSelection2 True
+        bPlnSel = swPart.Extension.SelectByID2(sPlaneFound, "PLANE", 0, 0, 0, False, 0, Nothing, 0)
     End If
 
     swPart.SketchManager.InsertSketch True

@@ -740,7 +740,7 @@ End Function
 Private Sub LogMasterSketchTo3D(ByVal nComponents As Long, _
                                 ByVal minutesSaved As Double)
 
-    Const LOG_DIR      As String = "Z:\DAG\SOLIDWORKS MACRO\Master Sketch to 3D\"
+    Const LOG_DIR      As String = "Z:\DAG\SOLIDWORKS MACRO\Master Sketch to 3D\LOG\"
     Const LOG_XLSX     As String = "MasterSketchTo3D_Log.xlsx"
     Const LOG_OVERFLOW As String = "MasterSketchTo3D_Log.csv"
     Const HEADER_ROW   As Long = 3

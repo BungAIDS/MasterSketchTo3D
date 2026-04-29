@@ -183,6 +183,40 @@ Sub CreateStiffeners()
     swApp.CommandInProgress = False
     swModel.EditRebuild3
 
+    ' ── 9. Select new stiffeners and run customProp macro ────
+    If nFound > 0 Then
+        Dim selDict As Object
+        Set selDict = CreateObject("Scripting.Dictionary")
+        For bi = 0 To nFound - 1
+            If Not selDict.Exists(contNames(bi)) Then
+                selDict.Add contNames(bi), True
+            End If
+        Next bi
+
+        swModel.ClearSelection2 True
+        Dim bAppend As Boolean : bAppend = False
+        vComps = swAssy.GetComponents(False)
+        If Not IsEmpty(vComps) Then
+            For ci = 0 To UBound(vComps)
+                Set swC = vComps(ci)
+                cName = swC.Name2
+                If InStr(cName, "^") > 0 Then _
+                    cName = Left(cName, InStr(cName, "^") - 1)
+                If selDict.Exists(cName) Then
+                    swC.Select4 bAppend, Nothing, False
+                    bAppend = True
+                End If
+            Next ci
+        End If
+
+        Dim sExtMacro As String
+        sExtMacro = "Z:\DAG\SOLIDWORKS MACRO\customProp - Copy 8-25-2025" & _
+                    "\Custom Properties V2.swp"
+        Dim lErr As Long
+        swApp.RunMacro2 sExtMacro, "Custom_Properties_V21", _
+                        "Main_LinkOnly_Smart", 0, lErr   ' 0 = swRunMacroDefault
+    End If
+
     LogMasterSketchTo3D nFound, nFound * 1
 
     If failNames = "" Then

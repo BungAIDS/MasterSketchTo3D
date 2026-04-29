@@ -676,7 +676,10 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     ' ── G. Close sketch ───────────────────────────────────────
     swModel.SketchManager.InsertSketch True
 
-    ' ── H. Select the sketch profile (mark = 0) ──────────────
+    ' ── H. Select the sketch profile via qualified path (mark=0)
+    '    Recorded-macro form: "Sketch2@CompRef@AssemblyTitle".
+    '    Feature.Select2 selects in the wrong context for the
+    '    assembly-side FeatureExtrusion2 call we need below.
     Dim swFt       As SldWorks.Feature
     Dim swLastSkFt As SldWorks.Feature
     Set swFt = swPart.FirstFeature()
@@ -686,7 +689,12 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
     Loop
 
     swModel.ClearSelection2 True
-    If Not swLastSkFt Is Nothing Then swLastSkFt.Select2 False, 0
+    If Not swLastSkFt Is Nothing Then
+        Dim sSketchQual As String
+        sSketchQual = swLastSkFt.Name & "@" & sCompRef & "@" & sAssyTitle
+        swModel.Extension.SelectByID2 sSketchQual, "SKETCH", _
+            0, 0, 0, False, 0, Nothing, 0
+    End If
 
     ' ── I. Add offset plane as Up To target (mark = 1) ───────
     '    The offset plane lives in the assembly, so select via swModel.
@@ -694,8 +702,10 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
         0, 0, 0, True, 1, Nothing, 0
 
     ' ── J. Extrude Up To Surface ──────────────────────────────
+    '    Call through swModel.FeatureManager (the assembly proxy
+    '    for the part being edited) — matches recorded macro.
     Dim swExtrude As SldWorks.Feature
-    Set swExtrude = swPart.FeatureManager.FeatureExtrusion2( _
+    Set swExtrude = swModel.FeatureManager.FeatureExtrusion2( _
         True, False, False, _
         4, 0, _
         0.00254, 0.00254, _
@@ -705,7 +715,7 @@ Private Function BuildStiffener(swApp      As SldWorks.SldWorks, _
         True, True, True, _
         0, 0, False)
 
-    swPart.SelectionManager.EnableContourSelection = False
+    swModel.SelectionManager.EnableContourSelection = False
 
     ' ── K. Exit edit mode, rename ─────────────────────────────
     If bCalledEditPart Then swAssy.EditAssembly

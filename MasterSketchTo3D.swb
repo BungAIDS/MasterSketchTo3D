@@ -259,8 +259,7 @@ Sub CreateStiffeners()
             bAppend = True
         Next ci
 
-        sExtMacro = "Z:\DAG\SOLIDWORKS MACRO\customProp - Copy 8-25-2025" & _
-                    "\Custom Properties V2.swp"
+        sExtMacro = "Z:\DAG\SOLIDWORKS MACRO\Custom Properties\Custom Properties V2.swp"
         swApp.RunMacro2 sExtMacro, "Custom_Properties_V21", _
                         "Main_LinkOnly_Smart", 0, lErr   ' 0 = swRunMacroDefault
     End If

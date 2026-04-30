@@ -40,7 +40,8 @@ Sub CreateStiffeners()
     Dim svErr     As Long, svWarn As Long
     Dim sFirstErr As String
     Dim sShort    As String, sFile As String
-    Dim eNum      As Long, eDesc As String
+    Dim miErrCode As Long
+    Dim miErrMsg  As String
     Dim bMI       As Boolean
     Dim bAppend   As Boolean
     Dim sExtMacro As String
@@ -233,17 +234,17 @@ Sub CreateStiffeners()
                         sShort = Left(sShort, InStr(sShort, "^") - 1)
                     If selDict.Exists(sShort) Then
                         sFile = sAssyDir & sShort & ".SLDPRT"
-                        bMI = False : eNum = 0 : eDesc = ""
+                        bMI = False : miErrCode = 0 : miErrMsg = ""
                         On Error Resume Next
                         bMI = swC.MakeIndependent(sFile)
-                        eNum = Err.Number : eDesc = Err.Description
+                        miErrCode = Err.Number : miErrMsg = Err.Description
                         Err.Clear
                         On Error GoTo 0
-                        If eNum <> 0 Or Not bMI Then
+                        If miErrCode <> 0 Or Not bMI Then
                             nSaveFail = nSaveFail + 1
                             If Len(sFirstErr) = 0 Then
                                 sFirstErr = sShort & " -> " & sFile & vbCr & _
-                                            "Err " & eNum & ": " & eDesc & vbCr & _
+                                            "Err " & miErrCode & ": " & miErrMsg & vbCr & _
                                             "Returned: " & bMI
                             End If
                         End If

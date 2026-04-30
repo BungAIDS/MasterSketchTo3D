@@ -219,8 +219,7 @@ Sub CreateStiffeners()
         bCanSave = (Len(sAssyDir) > 0)
         nSaveFail = 0
         If bCanSave Then
-            ' Commit the new virtual parts to disk first - MakeIndependent
-            ' fails on virtuals that haven't been saved at least once.
+            ' Commit the new virtual parts to disk first.
             swModel.Save3 1, svErr, svWarn   ' 1 = swSaveAsOptions_Silent
 
             sFirstErr = ""
@@ -236,7 +235,7 @@ Sub CreateStiffeners()
                         sFile = sAssyDir & sShort & ".SLDPRT"
                         bMI = False : miErrCode = 0 : miErrMsg = ""
                         On Error Resume Next
-                        bMI = swC.MakeIndependent(sFile)
+                        bMI = swC.SaveVirtualComponent(sFile)
                         miErrCode = Err.Number : miErrMsg = Err.Description
                         Err.Clear
                         On Error GoTo 0

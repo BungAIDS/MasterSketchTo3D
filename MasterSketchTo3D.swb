@@ -205,26 +205,31 @@ Sub CreateStiffeners()
 
         Dim bCanSave As Boolean : bCanSave = (Len(sAssyDir) > 0)
         Dim nSaveFail As Integer : nSaveFail = 0
+        Dim svErr As Long, svWarn As Long
+        Dim sFirstErr As String
+        Dim sShort As String, sFile As String
+        Dim eNum As Long, eDesc As String
+        Dim bMI As Boolean
+        Dim bAppend As Boolean
+        Dim sExtMacro As String
+        Dim lErr As Long
         If bCanSave Then
             ' Commit the new virtual parts to disk first - MakeIndependent
             ' fails on virtuals that haven't been saved at least once.
-            Dim svErr As Long, svWarn As Long
             swModel.Save3 1, svErr, svWarn   ' 1 = swSaveAsOptions_Silent
 
-            Dim sFirstErr As String : sFirstErr = ""
+            sFirstErr = ""
             vComps = swAssy.GetComponents(False)
             If Not IsEmpty(vComps) Then
                 For ci = 0 To UBound(vComps)
                     Set swC = vComps(ci)
                     cName = swC.Name2
-                    Dim sShort As String : sShort = cName
+                    sShort = cName
                     If InStr(sShort, "^") > 0 Then _
                         sShort = Left(sShort, InStr(sShort, "^") - 1)
                     If selDict.Exists(sShort) Then
-                        Dim sFile As String
                         sFile = sAssyDir & sShort & ".SLDPRT"
-                        Dim eNum As Long, eDesc As String
-                        Dim bMI As Boolean : bMI = False
+                        bMI = False : eNum = 0 : eDesc = ""
                         On Error Resume Next
                         bMI = swC.MakeIndependent(sFile)
                         eNum = Err.Number : eDesc = Err.Description
@@ -256,7 +261,7 @@ Sub CreateStiffeners()
         ' --- Step 2: select all new stiffeners (now external) and run
         '     customProp on them.
         swModel.ClearSelection2 True
-        Dim bAppend As Boolean : bAppend = False
+        bAppend = False
         vComps = swAssy.GetComponents(False)
         If Not IsEmpty(vComps) Then
             For ci = 0 To UBound(vComps)
@@ -271,10 +276,8 @@ Sub CreateStiffeners()
             Next ci
         End If
 
-        Dim sExtMacro As String
         sExtMacro = "Z:\DAG\SOLIDWORKS MACRO\customProp - Copy 8-25-2025" & _
                     "\Custom Properties V2.swp"
-        Dim lErr As Long
         swApp.RunMacro2 sExtMacro, "Custom_Properties_V21", _
                         "Main_LinkOnly_Smart", 0, lErr   ' 0 = swRunMacroDefault
     End If

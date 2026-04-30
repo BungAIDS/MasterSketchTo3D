@@ -31,6 +31,20 @@ Sub CreateStiffeners()
     Dim swApp   As SldWorks.SldWorks
     Dim swModel As SldWorks.ModelDoc2
     Dim swAssy  As SldWorks.AssemblyDoc
+    ' section-9 variables declared here to satisfy VBA scope rules
+    Dim selDict   As Object
+    Dim sAssyPath As String, sAssyDir As String
+    Dim p         As Long
+    Dim bCanSave  As Boolean
+    Dim nSaveFail As Integer
+    Dim svErr     As Long, svWarn As Long
+    Dim sFirstErr As String
+    Dim sShort    As String, sFile As String
+    Dim eNum      As Long, eDesc As String
+    Dim bMI       As Boolean
+    Dim bAppend   As Boolean
+    Dim sExtMacro As String
+    Dim lErr      As Long
 
     Set swApp   = Application.SldWorks
     Set swModel = swApp.ActiveDoc
@@ -185,7 +199,6 @@ Sub CreateStiffeners()
 
     ' ── 9. Save virtuals as external parts, then run customProp ─
     If nFound > 0 Then
-        Dim selDict As Object
         Set selDict = CreateObject("Scripting.Dictionary")
         For bi = 0 To nFound - 1
             If Not selDict.Exists(contNames(bi)) Then
@@ -196,23 +209,14 @@ Sub CreateStiffeners()
         ' --- Step 1: write each virtual stiffener out to disk so it
         '     loses the "^AssemblyName" suffix BEFORE customProp reads
         '     swPart.GetTitle (DESCRIPTION default text comes from there).
-        Dim sAssyPath As String, sAssyDir As String, p As Long
         sAssyPath = swModel.GetPathName()
         If Len(sAssyPath) > 0 Then
             p = InStrRev(sAssyPath, "\")
             If p > 0 Then sAssyDir = Left(sAssyPath, p)
         End If
 
-        Dim bCanSave As Boolean : bCanSave = (Len(sAssyDir) > 0)
-        Dim nSaveFail As Integer : nSaveFail = 0
-        Dim svErr As Long, svWarn As Long
-        Dim sFirstErr As String
-        Dim sShort As String, sFile As String
-        Dim eNum As Long, eDesc As String
-        Dim bMI As Boolean
-        Dim bAppend As Boolean
-        Dim sExtMacro As String
-        Dim lErr As Long
+        bCanSave = (Len(sAssyDir) > 0)
+        nSaveFail = 0
         If bCanSave Then
             ' Commit the new virtual parts to disk first - MakeIndependent
             ' fails on virtuals that haven't been saved at least once.

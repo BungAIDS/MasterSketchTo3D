@@ -250,11 +250,6 @@ Sub CreateStiffeners()
                     End If
                 Next ci
             End If
-            If nSaveFail > 0 Then
-                MsgBox nSaveFail & " stiffener(s) could not be saved to an " & _
-                       "external file - they remain as virtual parts." & vbCr & _
-                       vbCr & "First failure:" & vbCr & sFirstErr, vbExclamation
-            End If
         Else
             MsgBox "Save the assembly first so stiffeners can be saved as " & _
                    "external parts.  Running customProp on virtual parts " & _

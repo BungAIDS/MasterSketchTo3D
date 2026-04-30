@@ -46,6 +46,7 @@ Sub CreateStiffeners()
     Dim bAppend   As Boolean
     Dim sExtMacro As String
     Dim lErr      As Long
+    Dim savedComps As Collection
 
     Set swApp   = Application.SldWorks
     Set swModel = swApp.ActiveDoc
@@ -218,6 +219,7 @@ Sub CreateStiffeners()
 
         bCanSave = (Len(sAssyDir) > 0)
         nSaveFail = 0
+        Set savedComps = New Collection
         If bCanSave Then
             ' Commit the new virtual parts to disk first.
             swModel.Save3 1, svErr, svWarn   ' 1 = swSaveAsOptions_Silent
@@ -233,20 +235,11 @@ Sub CreateStiffeners()
                         sShort = Left(sShort, InStr(sShort, "^") - 1)
                     If selDict.Exists(sShort) Then
                         sFile = sAssyDir & sShort & ".SLDPRT"
-                        bMI = False : miErrCode = 0 : miErrMsg = ""
                         On Error Resume Next
-                        bMI = swC.SaveVirtualComponent(sFile)
-                        miErrCode = Err.Number : miErrMsg = Err.Description
+                        swC.SaveVirtualComponent sFile
                         Err.Clear
                         On Error GoTo 0
-                        If miErrCode <> 0 Or Not bMI Then
-                            nSaveFail = nSaveFail + 1
-                            If Len(sFirstErr) = 0 Then
-                                sFirstErr = sShort & " -> " & sFile & vbCr & _
-                                            "Err " & miErrCode & ": " & miErrMsg & vbCr & _
-                                            "Returned: " & bMI
-                            End If
-                        End If
+                        savedComps.Add swC
                     End If
                 Next ci
             End If
@@ -257,23 +250,14 @@ Sub CreateStiffeners()
                    vbInformation
         End If
 
-        ' --- Step 2: select all new stiffeners (now external) and run
-        '     customProp on them.
+        ' --- Step 2: select the saved stiffeners and run customProp.
         swModel.ClearSelection2 True
         bAppend = False
-        vComps = swAssy.GetComponents(False)
-        If Not IsEmpty(vComps) Then
-            For ci = 0 To UBound(vComps)
-                Set swC = vComps(ci)
-                cName = swC.Name2
-                If InStr(cName, "^") > 0 Then _
-                    cName = Left(cName, InStr(cName, "^") - 1)
-                If selDict.Exists(cName) Then
-                    swC.Select4 bAppend, Nothing, False
-                    bAppend = True
-                End If
-            Next ci
-        End If
+        For ci = 1 To savedComps.Count
+            Set swC = savedComps.Item(ci)
+            swC.Select4 bAppend, Nothing, False
+            bAppend = True
+        Next ci
 
         sExtMacro = "Z:\DAG\SOLIDWORKS MACRO\customProp - Copy 8-25-2025" & _
                     "\Custom Properties V2.swp"
